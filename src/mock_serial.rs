@@ -40,8 +40,7 @@ impl embedded_io::Error for MockSerialError {
     }
 }
 
-
-// impl 
+// impl
 
 impl embedded_io::ErrorType for MockSerial {
     type Error = MockSerialError;
@@ -59,12 +58,14 @@ impl embedded_io::Write for MockSerial {
         }
 
         for &byte in buf {
-            self.write_buffer.push(byte).map_err(|_| MockSerialError::BufferOverflow)?;
+            self.write_buffer
+                .push(byte)
+                .map_err(|_| MockSerialError::BufferOverflow)?;
         }
 
         Ok(buf.len())
     }
-    
+
     fn flush(&mut self) -> Result<(), Self::Error> {
         if self.should_error_on_write {
             return Err(MockSerialError::SimulatedError);
@@ -111,11 +112,13 @@ impl MockSerial {
     pub fn set_read_data(&mut self, data: &[u8]) -> Result<(), MockSerialError> {
         self.read_buffer.clear();
         self.read_position = 0;
-        
+
         for &byte in data {
-            self.read_buffer.push(byte).map_err(|_| MockSerialError::BufferOverflow)?;
+            self.read_buffer
+                .push(byte)
+                .map_err(|_| MockSerialError::BufferOverflow)?;
         }
-        
+
         Ok(())
     }
 
@@ -148,7 +151,7 @@ impl MockSerial {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use embedded_io::{Read, Write, Error};
+    use embedded_io::{Error, Read, Write};
 
     #[test]
     fn test_new_mock_serial() {
@@ -163,7 +166,7 @@ mod tests {
     fn test_write_data() {
         let mut mock = MockSerial::new();
         let test_data = b"Hello, World!";
-        
+
         let result = mock.write(test_data);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data.len());
@@ -175,10 +178,10 @@ mod tests {
         let mut mock = MockSerial::new();
         let data1 = b"Hello, ";
         let data2 = b"World!";
-        
+
         mock.write(data1).unwrap();
         mock.write(data2).unwrap();
-        
+
         let expected = b"Hello, World!";
         assert_eq!(mock.written_data(), expected);
     }
@@ -187,10 +190,13 @@ mod tests {
     fn test_write_buffer_overflow() {
         let mut mock = MockSerial::new();
         let large_data = vec![0u8; 300]; // Larger than 256 byte capacity
-        
+
         let result = mock.write(&large_data);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MockSerialError::BufferOverflow));
+        assert!(matches!(
+            result.unwrap_err(),
+            MockSerialError::BufferOverflow
+        ));
     }
 
     #[test]
@@ -205,10 +211,10 @@ mod tests {
         let mut mock = MockSerial::new();
         let test_data = b"Response data";
         mock.set_read_data(test_data).unwrap();
-        
+
         let mut buffer = [0u8; 20];
         let result = mock.read(&mut buffer);
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_data.len());
         assert_eq!(&buffer[..test_data.len()], test_data);
@@ -219,10 +225,10 @@ mod tests {
         let mut mock = MockSerial::new();
         let test_data = b"Long response data";
         mock.set_read_data(test_data).unwrap();
-        
+
         let mut buffer = [0u8; 5];
         let result = mock.read(&mut buffer);
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 5);
         assert_eq!(&buffer, b"Long ");
@@ -233,13 +239,13 @@ mod tests {
         let mut mock = MockSerial::new();
         let test_data = b"Hello World";
         mock.set_read_data(test_data).unwrap();
-        
+
         let mut buffer1 = [0u8; 5];
         let mut buffer2 = [0u8; 6];
-        
+
         let result1 = mock.read(&mut buffer1);
         let result2 = mock.read(&mut buffer2);
-        
+
         assert!(result1.is_ok());
         assert!(result2.is_ok());
         assert_eq!(result1.unwrap(), 5);
@@ -252,7 +258,7 @@ mod tests {
     fn test_read_timeout_when_no_data() {
         let mut mock = MockSerial::new();
         let mut buffer = [0u8; 10];
-        
+
         let result = mock.read(&mut buffer);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), MockSerialError::WouldBlock));
@@ -263,13 +269,13 @@ mod tests {
         let mut mock = MockSerial::new();
         let test_data = b"Hi";
         mock.set_read_data(test_data).unwrap();
-        
+
         let mut buffer = [0u8; 10];
-        
+
         // First read should succeed
         let result1 = mock.read(&mut buffer);
         assert!(result1.is_ok());
-        
+
         // Second read should return WouldBlock
         let result2 = mock.read(&mut buffer);
         assert!(result2.is_err());
@@ -280,12 +286,15 @@ mod tests {
     fn test_write_error_simulation() {
         let mut mock = MockSerial::new();
         mock.set_write_error(true);
-        
+
         let test_data = b"test";
         let result = mock.write(test_data);
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MockSerialError::SimulatedError));
+        assert!(matches!(
+            result.unwrap_err(),
+            MockSerialError::SimulatedError
+        ));
         assert_eq!(mock.written_data().len(), 0); // Nothing should be written
     }
 
@@ -293,10 +302,13 @@ mod tests {
     fn test_flush_error_simulation() {
         let mut mock = MockSerial::new();
         mock.set_write_error(true);
-        
+
         let result = mock.flush();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MockSerialError::SimulatedError));
+        assert!(matches!(
+            result.unwrap_err(),
+            MockSerialError::SimulatedError
+        ));
     }
 
     #[test]
@@ -304,20 +316,35 @@ mod tests {
         let mut mock = MockSerial::new();
         mock.set_read_data(b"test data").unwrap();
         mock.set_read_error(true);
-        
+
         let mut buffer = [0u8; 10];
         let result = mock.read(&mut buffer);
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MockSerialError::SimulatedError));
+        assert!(matches!(
+            result.unwrap_err(),
+            MockSerialError::SimulatedError
+        ));
     }
 
     #[test]
     fn test_error_kinds() {
-        assert!(matches!(MockSerialError::Timeout.kind(), embedded_io::ErrorKind::TimedOut));
-        assert!(matches!(MockSerialError::BufferOverflow.kind(), embedded_io::ErrorKind::OutOfMemory));
-        assert!(matches!(MockSerialError::InvalidData.kind(), embedded_io::ErrorKind::InvalidData));
-        assert!(matches!(MockSerialError::SimulatedError.kind(), embedded_io::ErrorKind::Other));
+        assert!(matches!(
+            MockSerialError::Timeout.kind(),
+            embedded_io::ErrorKind::TimedOut
+        ));
+        assert!(matches!(
+            MockSerialError::BufferOverflow.kind(),
+            embedded_io::ErrorKind::OutOfMemory
+        ));
+        assert!(matches!(
+            MockSerialError::InvalidData.kind(),
+            embedded_io::ErrorKind::InvalidData
+        ));
+        assert!(matches!(
+            MockSerialError::SimulatedError.kind(),
+            embedded_io::ErrorKind::Other
+        ));
     }
 
     #[test]
@@ -325,7 +352,7 @@ mod tests {
         let mut mock = MockSerial::new();
         mock.write(b"test data").unwrap();
         assert!(!mock.written_data().is_empty());
-        
+
         mock.clear_written_data();
         assert!(mock.written_data().is_empty());
     }
@@ -335,12 +362,12 @@ mod tests {
         let mut mock = MockSerial::new();
         let test_data = b"Hello World";
         mock.set_read_data(test_data).unwrap();
-        
+
         let mut buffer = [0u8; 5];
         mock.read(&mut buffer).unwrap(); // Advances read position
-        
+
         mock.reset_read_position();
-        
+
         let result = mock.read(&mut buffer);
         assert!(result.is_ok());
         assert_eq!(&buffer, b"Hello");
@@ -350,10 +377,13 @@ mod tests {
     fn test_set_read_data_buffer_overflow() {
         let mut mock = MockSerial::new();
         let large_data = vec![0u8; 300]; // Larger than 256 byte capacity
-        
+
         let result = mock.set_read_data(&large_data);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MockSerialError::BufferOverflow));
+        assert!(matches!(
+            result.unwrap_err(),
+            MockSerialError::BufferOverflow
+        ));
     }
 
     #[test]
@@ -361,10 +391,10 @@ mod tests {
         let mut mock = MockSerial::new();
         mock.set_read_data(b"first").unwrap();
         mock.set_read_data(b"second").unwrap();
-        
+
         let mut buffer = [0u8; 10];
         let result = mock.read(&mut buffer);
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 6);
         assert_eq!(&buffer[..6], b"second");
@@ -373,21 +403,21 @@ mod tests {
     #[test]
     fn test_error_flags_toggle() {
         let mut mock = MockSerial::new();
-        
+
         // Test write error flag
         mock.set_write_error(true);
         assert!(mock.write(b"test").is_err());
-        
+
         mock.set_write_error(false);
         assert!(mock.write(b"test").is_ok());
-        
+
         // Test read error flag
         mock.set_read_data(b"data").unwrap();
         mock.set_read_error(true);
-        
+
         let mut buffer = [0u8; 10];
         assert!(mock.read(&mut buffer).is_err());
-        
+
         mock.set_read_error(false);
         mock.reset_read_position();
         assert!(mock.read(&mut buffer).is_ok());

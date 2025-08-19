@@ -15,8 +15,10 @@ pub enum Error<I: embedded_io::Error> {
     Timeout,
     #[error("Invalid range")]
     InvalidRange,
-    #[error("Invalid response received")]
+    #[error("Invalid modbus response received")]
     InvalidResponse,
+    #[error("heapless::Vec full?")]
+    BufferError,
 }
 
 impl<I: embedded_io::Error> From<rmodbus::ErrorKind> for Error<I> {
@@ -24,4 +26,3 @@ impl<I: embedded_io::Error> From<rmodbus::ErrorKind> for Error<I> {
         Error::ModbusError(err)
     }
 }
-
