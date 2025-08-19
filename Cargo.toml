@@ -1,0 +1,15 @@
+[package]
+name = "sinilink-xy-psu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+embedded-io = "0.6.1"
+heapless = "0.8.0"
+modular-bitfield = "0.12"
+rmodbus = { version = "0.10", features = ["heapless"] }
+thiserror = { version = "2.0", default-features = false }
+
+
+[dev-dependencies]
+serial = "0.4.0"
