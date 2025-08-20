@@ -1,5 +1,7 @@
 //! This crate provides an interface for communicating and controlling the Sinilink XY series of programmable power supplies.
 //!
+//! It supports `no-std` environments by use of the `no-std` feature flag.
+//!
 //! @TODO add table including electrical spec.
 //!
 //! Example PSU model numbers which this should work with:
@@ -25,22 +27,13 @@
 //! * Stop bits: 1
 //! * Parity: None
 
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(feature = "no-std", no_std)]
+// #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod error;
 pub mod psu;
+mod registers;
 mod types;
 
 #[cfg(test)]
 mod mock_serial;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // #[test]
-    // fn it_works() {
-    //     let result = add(2, 2);
-    //     assert_eq!(result, 4);
-    // }
-}
