@@ -11,7 +11,7 @@ no-std = []
 embedded-io = "0.6.1"
 heapless = "0.8.0"
 modular-bitfield = "0.12"
-rmodbus = { version = "0.10", features = ["heapless"] }
+rmodbus = { version = "0.10", default-features = false, features = ["heapless"] }
 strum = { version = "0.27.2", default-features = false, features = [
     "strum_macros",
 ] }

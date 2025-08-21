@@ -19,10 +19,18 @@ pub enum Error<I: embedded_io::Error> {
     InvalidResponse,
     #[error("heapless::Vec full?")]
     BufferError,
+    #[error("Passed value was too large to convert to u16.")]
+    IntTooBig,
 }
 
 impl<I: embedded_io::Error> From<rmodbus::ErrorKind> for Error<I> {
     fn from(err: rmodbus::ErrorKind) -> Self {
         Error::ModbusError(err)
+    }
+}
+
+impl<I: embedded_io::Error> From<core::num::TryFromIntError> for Error<I> {
+    fn from(_value: core::num::TryFromIntError) -> Self {
+        Error::IntTooBig
     }
 }

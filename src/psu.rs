@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::{error::Result, registers::XyRegister};
 use embedded_io::Error;
 
 /// You can create a XyPsu using any interface which implements [embedded_io::Read] & [embedded_io::Write].
@@ -16,55 +16,99 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
 
     /// Returned the measured output voltage in mV.
     pub fn read_output_voltage_millivolts(&mut self) -> Result<u32, S::Error> {
-        todo!()
+        let decivolts = self.read_modbus_single(XyRegister::VOut)?;
+        Ok(decivolts as u32 * 10u32)
     }
 
     /// Returned the measured supply input voltage in mV.
     pub fn read_input_voltage_millivolts(&mut self) -> Result<u32, S::Error> {
-        todo!()
+        let decivolts = self.read_modbus_single(XyRegister::UIn)?;
+        Ok(decivolts as u32 * 10u32)
     }
 
     /// Returned the measured output current in mA.
     pub fn read_current_milliamps(&mut self) -> Result<u32, S::Error> {
-        todo!()
+        let milliamps = self.read_modbus_single(XyRegister::IOut)?;
+        Ok(milliamps as u32)
     }
 
     /// Set the output target voltage. Value supplied in millivolts.
     pub fn set_output_voltage(&mut self, voltage_mv: u32) -> Result<(), S::Error> {
-        todo!()
+        let decivolts = u16::try_from(voltage_mv / 10)?;
+        self.write_modbus_single(XyRegister::VSet, decivolts)?;
+        Ok(())
     }
 
     /// Set the output current limit. Value supplied in milliamps.
     pub fn set_current_limit(&mut self, current_ma: u32) -> Result<(), S::Error> {
-        todo!()
+        let current_ma = u16::try_from(current_ma)?;
+        self.write_modbus_single(XyRegister::ISet, current_ma)?;
+        Ok(())
     }
 
     /// Returns the raw register values for "MODEL" -> product model
     ///
     /// See [Self::get_product_model] for a method which tries to interpret this data.
-    pub fn get_product_model_raw(&mut self) -> Result<[u8; 2], S::Error> {
-        todo!()
+    pub fn get_product_model_raw(&mut self) -> Result<u16, S::Error> {
+        self.read_modbus_single(XyRegister::Model)
     }
 
-    fn write_modbus_single(&mut self, register: u16, data: impl Into<u16>) -> Result<(), S::Error> {
-        let mut buff: heapless::Vec<u8, L> = heapless::Vec::new();
-        let mut req = rmodbus::client::ModbusRequest::new(self.unit_id, rmodbus::ModbusProto::Rtu);
+    fn write_modbus_single(
+        &mut self,
+        register: impl Into<u16>,
+        data: impl Into<u16>,
+    ) -> Result<(), S::Error> {
+        let mut buff_1: heapless::Vec<u8, L> = heapless::Vec::new();
+        let mut buff_2: heapless::Vec<u8, L> = heapless::Vec::new();
 
-        req.generate_set_holding(register, data.into(), &mut buff)?;
+        let mut req = rmodbus::client::ModbusRequest::new(self.unit_id, rmodbus::ModbusProto::Rtu);
+        req.generate_set_holding(register.into(), data.into(), &mut buff_1)?;
 
         self.interface
-            .write_all(&buff)
+            .write_all(&buff_1)
             .map_err(crate::error::Error::SerialError)?;
 
-        Ok(())
+        // Read the response - keep reading until we get WouldBlock or have enough data
+        let mut temp_buf = [0u8; 8]; // Temporary buffer for single reads
+        loop {
+            match self.interface.read(&mut temp_buf) {
+                Ok(bytes_read) => {
+                    // Add the read bytes to our buffer
+                    if buff_2.extend_from_slice(&temp_buf[0..bytes_read]).is_err() {
+                        return Err(crate::error::Error::BufferError);
+                    }
+                    // Check if we have enough data for a minimal response (unit_id + function + byte_count + at least 2 data bytes + 2 CRC)
+                    if buff_2.len() >= 7 {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // If WouldBlock and we have some data, break and try to parse
+                    if matches!(
+                        e.kind(),
+                        embedded_io::ErrorKind::Other | embedded_io::ErrorKind::TimedOut
+                    ) && !buff_2.is_empty()
+                    {
+                        break;
+                    }
+                    // Other errors should be propagated
+                    return Err(crate::error::Error::SerialError(e));
+                }
+            }
+        }
+        if buff_1.as_slice() != buff_2.as_slice() {
+            Err(crate::error::Error::InvalidResponse)
+        } else {
+            Ok(())
+        }
     }
 
-    fn read_modbus_single(&mut self, register: u16) -> Result<u16, S::Error> {
+    fn read_modbus_single(&mut self, register: impl Into<u16>) -> Result<u16, S::Error> {
         let mut buff: heapless::Vec<u8, L> = heapless::Vec::new();
         let mut req = rmodbus::client::ModbusRequest::new(self.unit_id, rmodbus::ModbusProto::Rtu);
 
         // @TODO check that 1 is one register, not one byte?
-        req.generate_get_holdings(register, 1, &mut buff)?;
+        req.generate_get_holdings(register.into(), 1, &mut buff)?;
 
         self.interface
             .write_all(&buff)
@@ -82,11 +126,6 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
                     if buff.extend_from_slice(&temp_buf[0..bytes_read]).is_err() {
                         return Err(crate::error::Error::BufferError);
                     }
-                    // for i in 0..bytes_read {
-                    //     if buff.push(temp_buf[i]).is_err() {
-                    //         return Err(crate::error::Error::BufferError);
-                    //     }
-                    // }
                     // Check if we have enough data for a minimal response (unit_id + function + byte_count + at least 2 data bytes + 2 CRC)
                     if buff.len() >= 7 {
                         break;
@@ -127,31 +166,25 @@ mod tests {
 
     #[test]
     fn test_write_modbus_single() {
-        let mock_serial = MockSerial::new();
+        let mut mock_serial = MockSerial::new();
+        let ideal_written = [0x01, 0x06, 0x00, 0x10, 0x12, 0x34, 0x85, 0x78];
+        mock_serial.set_read_data(ideal_written.as_slice()).unwrap();
+
         let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
 
         // Test writing to register 0x10 with value 0x1234
-        let result = psu.write_modbus_single(0x10, 0x1234u16);
+        let result = psu.write_modbus_single(0x10 as u16, 0x1234u16);
         assert!(result.is_ok());
 
         // Check that the correct Modbus RTU frame was written
         let written_data = psu.interface.written_data();
         assert!(!written_data.is_empty());
-
-        // Expected frame: [unit_id, function_code, register_high, register_low, data_high, data_low, crc_low, crc_high]
-        // For unit_id=0x01, function=0x06 (write single holding), register=0x0010, data=0x1234
-        assert_eq!(written_data[0], 0x01); // Unit ID
-        assert_eq!(written_data[1], 0x06); // Function code for write single holding register
-        assert_eq!(written_data[2], 0x00); // Register high byte
-        assert_eq!(written_data[3], 0x10); // Register low byte  
-        assert_eq!(written_data[4], 0x12); // Data high byte
-        assert_eq!(written_data[5], 0x34); // Data low byte
-        // CRC bytes are at positions 6 and 7
+        assert_eq!(written_data, ideal_written.as_slice());
         assert_eq!(written_data.len(), 8); // Total frame length
     }
 
     #[test]
-    fn test_read_modbus_single() {
+    fn test_read_modbus_single_bad_crc() {
         let mut mock_serial = MockSerial::new();
 
         // Set up a proper Modbus RTU response for reading register 0x20 with value 0x5678
@@ -161,8 +194,7 @@ mod tests {
 
         let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
 
-        // This should now work instead of panicking with todo!()
-        let result = psu.read_modbus_single(0x20);
+        let result = psu.read_modbus_single(0x20 as u16);
 
         // Check that the request was written correctly
         let written_data = psu.interface.written_data();
@@ -192,5 +224,107 @@ mod tests {
                 panic!("Unexpected error: {:?}", other);
             }
         }
+    }
+
+    #[test]
+    fn test_read_modbus_single() {
+        let mut mock_serial = MockSerial::new();
+
+        // Set up a proper Modbus RTU response for reading register 0x20 with value 0x5678
+        // Create a response manually: unit_id(1) + function(1) + byte_count(1) + data(2) + crc(2) = 7 bytes
+        let response_data = [0x01, 0x03, 0x02, 0x56, 0x78, 0x87, 0xC6]; // CRC calculated using: https://homepages.plus.net/dougrice/dev/modbus/crc.html
+        mock_serial.set_read_data(&response_data).unwrap();
+
+        let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
+
+        let result = psu.read_modbus_single(0x20 as u16);
+
+        // Check that the request was written correctly
+        let written_data = psu.interface.written_data();
+        assert!(!written_data.is_empty());
+
+        // Expected request frame for reading register 0x0020, count 1
+        assert_eq!(written_data[0], 0x01); // Unit ID
+        assert_eq!(written_data[1], 0x03); // Function code for read holding registers
+        assert_eq!(written_data[2], 0x00); // Register high byte
+        assert_eq!(written_data[3], 0x20); // Register low byte
+        assert_eq!(written_data[4], 0x00); // Count high byte
+        assert_eq!(written_data[5], 0x01); // Count low byte
+        // CRC bytes are at positions 6 and 7
+        assert_eq!(written_data[6], 0x85);
+        assert_eq!(written_data[7], 0xC0);
+        assert_eq!(written_data.len(), 8); // Total frame length
+
+        match result {
+            Ok(value) => {
+                // If parsing somehow succeeds, verify we got the expected value
+                assert_eq!(value, 0x5678);
+            }
+            Err(err) => {
+                panic!("Unexpected error: {:?}", err);
+            }
+        }
+    }
+
+    #[test]
+    fn test_read_output_voltage() {
+        let mut mock_serial = MockSerial::new();
+
+        // Set up a proper Modbus RTU response for reading register 0x02 with value 500 (5.0 or 5000mV)
+        // Create a response manually: unit_id(1) + function(1) + byte_count(1) + data(2) + crc(2) = 7 bytes
+        let response_data = [0x01, 0x03, 0x04, 0x01, 0xF4, 0x58, 0x52]; // CRC calculated using: https://homepages.plus.net/dougrice/dev/modbus/crc.html
+        mock_serial.set_read_data(&response_data).unwrap();
+
+        let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
+
+        let result = psu.read_output_voltage_millivolts();
+
+        // Check that the request was written correctly
+        let written_data = psu.interface.written_data();
+        assert!(!written_data.is_empty());
+
+        // Expected request frame for reading register 0x0020, count 1
+        assert_eq!(written_data[0], 0x01); // Unit ID
+        assert_eq!(written_data[1], 0x03); // Function code for read holding registers
+        assert_eq!(written_data[2], 0x00); // Register high byte
+        assert_eq!(written_data[3], 0x02); // Register low byte
+        assert_eq!(written_data[4], 0x00); // Count high byte
+        assert_eq!(written_data[5], 0x01); // Count low byte
+        // CRC bytes are at positions 6 and 7
+        assert_eq!(written_data[6], 0x25);
+        assert_eq!(written_data[7], 0xCA);
+        assert_eq!(written_data.len(), 8); // Total frame length
+
+        match result {
+            Ok(value) => {
+                // If parsing somehow succeeds, verify we got the expected value
+                assert_eq!(value, 5000);
+            }
+            Err(err) => {
+                panic!("Unexpected error: {:?}", err);
+            }
+        }
+    }
+
+    #[test]
+    fn test_write_output_voltage() {
+        let mut mock_serial = MockSerial::new();
+
+        // @TODO preload with correct response for a good write.
+        let read_data = [0x01, 0x06, 0x00, 0x00, 0x09, 0x60, 0x8F, 0xB2];
+        mock_serial.set_read_data(read_data.as_slice()).unwrap();
+
+        let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
+
+        // Test writing to register 0x10 with value 0x1234
+        let result = psu.set_output_voltage(24000);
+        assert!(result.is_ok());
+
+        // Check that the correct Modbus RTU frame was written
+        let written_data = psu.interface.written_data();
+        let ideal_written = [0x01, 0x06, 0x00, 0x00, 0x09, 0x60, 0x8F, 0xB2];
+        assert!(!written_data.is_empty());
+        assert_eq!(written_data, ideal_written.as_slice());
+        assert_eq!(written_data.len(), 8); // Total frame length
     }
 }

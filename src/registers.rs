@@ -4,8 +4,12 @@
 #[repr(u16)]
 pub enum XyRegister {
     /// __R/W__ - Voltage setting.
+    ///
+    /// Value is u16 in deci-volts. E.g. 5.0V => `500`.
     VSet = 0x00,
     /// __R/W__ - Current setting.
+    ///
+    /// Value is u16 in milli-volts. E.g. 1.5A => `1500`.
     ISet = 0x01,
     /// __R__ - Output voltage display value.
     VOut = 0x02,

@@ -3,6 +3,7 @@
 use strum_macros::EnumIter;
 
 /// This enum represents all possible product model versions.
+#[allow(unused)]
 #[derive(Debug)]
 #[repr(u16)]
 pub enum ProductModel {
@@ -49,6 +50,7 @@ impl From<ControlMode> for u16 {
 }
 
 /// All possible baud rates supported by the XY PSUs.
+#[allow(unused)]
 #[derive(Debug)]
 pub enum BaudRate {
     _9600 = 0,
