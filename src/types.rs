@@ -40,6 +40,15 @@ pub enum ControlMode {
     Cc,
 }
 
+/// Used for setting and reading unit used for temperature readings.
+// @TODO read value from device to find out what value is what.
+#[derive(Debug)]
+#[repr(u16)]
+pub enum TemperatureUnit {
+    Celsius = 0x00,
+    Fahrenheit = 0x01,
+}
+
 impl From<ControlMode> for u16 {
     fn from(value: ControlMode) -> Self {
         match value {
@@ -150,6 +159,47 @@ impl From<u16> for ProtectionStatus {
         } else {
             // Default to no alarms active if outside of expected values.
             Self::AlarmCode
+        }
+    }
+}
+
+/// This struct is used to define the configuration of the protection features. E.g. over-voltage protection.
+#[allow(unused)]
+#[derive(Debug)]
+pub struct ProtectionsConfiguration {
+    /// Under-voltage protection level in milli-volts.
+    pub under_voltage_mv: u32,
+    /// Over-voltage protection level in milli-volts.
+    pub over_voltage_mv: u32,
+    /// Over-current protection level in milli-amps.
+    pub over_current_ma: u32,
+    /// Over-power protection level in milli-watts.
+    pub over_power_mw: u32,
+    /// Over-time protection duration in minutes.
+    ///
+    /// @TODO move to fugit or similar?
+    pub over_time_minutes: u32,
+    /// Over capacity protection level in milli-amp hours.
+    pub over_capacity_mah: u32,
+    /// Over energy protection level in milli-watt hours.
+    pub over_energy_mwh: u32,
+    /// Over-temperature protection level in unit as configured.
+    pub over_temperature: u32,
+}
+
+/// Default protections are essentially disabled.
+impl Default for ProtectionsConfiguration {
+    fn default() -> Self {
+        // @TODO confirm units to raw conversion is as expected.
+        ProtectionsConfiguration {
+            under_voltage_mv: 0,
+            over_voltage_mv: 99999,
+            over_current_ma: 9999,
+            over_power_mw: 99999,
+            over_time_minutes: 99999,
+            over_capacity_mah: 99999,
+            over_energy_mwh: 99999,
+            over_temperature: 999,
         }
     }
 }

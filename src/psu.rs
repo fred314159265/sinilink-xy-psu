@@ -1,4 +1,4 @@
-use crate::{error::Result, registers::XyRegister};
+use crate::{error::Result, registers::XyRegister, types::TemperatureUnit};
 use embedded_io::Error;
 
 /// You can create a XyPsu using any interface which implements [embedded_io::Read] & [embedded_io::Write].
@@ -14,22 +14,67 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         Self { interface, unit_id }
     }
 
-    /// Returned the measured output voltage in mV.
+    /// Return the measured output voltage in mV.
     pub fn read_output_voltage_millivolts(&mut self) -> Result<u32, S::Error> {
         let decivolts = self.read_modbus_single(XyRegister::VOut)?;
         Ok(decivolts as u32 * 10u32)
     }
 
-    /// Returned the measured supply input voltage in mV.
+    /// Return the measured supply input voltage in mV.
     pub fn read_input_voltage_millivolts(&mut self) -> Result<u32, S::Error> {
         let decivolts = self.read_modbus_single(XyRegister::UIn)?;
         Ok(decivolts as u32 * 10u32)
     }
 
-    /// Returned the measured output current in mA.
+    /// Return the measured output current in mA.
     pub fn read_current_milliamps(&mut self) -> Result<u32, S::Error> {
         let milliamps = self.read_modbus_single(XyRegister::IOut)?;
         Ok(milliamps as u32)
+    }
+
+    /// Return the measured output current in mW.
+    pub fn read_power_mw(&mut self) -> Result<u32, S::Error> {
+        let deciwatts = self.read_modbus_single(XyRegister::Power)?;
+        // @TODO confirm raw value in deci-watts.
+        Ok(deciwatts as u32 * 10)
+    }
+
+    /// Return the measured output energy in mWh.
+    pub fn read_energy_mwh(&mut self) -> Result<u32, S::Error> {
+        let energy_mwh_lower = self.read_modbus_single(XyRegister::WhLow)? as u32;
+        let energy_mwh_upper = self.read_modbus_single(XyRegister::WhHigh)? as u32;
+        // @TODO confirm raw value in milli-wattshours.
+        Ok(energy_mwh_lower + (energy_mwh_upper << 16))
+    }
+
+    /// Return the measured output capacity in mAh.
+    pub fn read_capacity_mah(&mut self) -> Result<u32, S::Error> {
+        let energy_mah_lower = self.read_modbus_single(XyRegister::AhLow)? as u32;
+        let energy_mah_upper = self.read_modbus_single(XyRegister::AhHigh)? as u32;
+        // @TODO confirm raw value in milli-amphours.
+        Ok(energy_mah_lower + (energy_mah_upper << 16))
+    }
+
+    /// Return the measured internal temperature.
+    ///
+    /// Unit of measurement depends on setting.
+    pub fn read_temperature_internal(&mut self) -> Result<u16, S::Error> {
+        let temp_internal = self.read_modbus_single(XyRegister::TIn)?;
+        Ok(temp_internal)
+    }
+
+    /// Return the measured external temperature sensor.
+    ///
+    /// Unit of measurement depends on setting. See [Self::set_temperatire_unit].
+    pub fn read_temperature_external(&mut self) -> Result<u16, S::Error> {
+        let temp_external = self.read_modbus_single(XyRegister::TEx)?;
+        Ok(temp_external)
+    }
+
+    /// Return the measured external temperature sensor.
+    pub fn set_temperature_unit(&mut self, unit: TemperatureUnit) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::VSet, unit as u16)?;
+        Ok(())
     }
 
     /// Set the output target voltage. Value supplied in millivolts.
