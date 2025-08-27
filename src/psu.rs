@@ -1,4 +1,6 @@
-use crate::{error::Result, registers::XyRegister, types::TemperatureUnit};
+use crate::{
+    error::Result, preset::ProtectionConfig, registers::XyRegister, types::TemperatureUnit,
+};
 use embedded_io::Error;
 
 /// You can create a XyPsu using any interface which implements [embedded_io::Read] & [embedded_io::Write].
@@ -98,7 +100,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         self.read_modbus_single(XyRegister::Model)
     }
 
-    fn write_modbus_single(
+    pub fn write_modbus_single(
         &mut self,
         register: impl Into<u16>,
         data: impl Into<u16>,
@@ -148,7 +150,60 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         }
     }
 
-    fn read_modbus_single(&mut self, register: impl Into<u16>) -> Result<u16, S::Error> {
+    pub fn write_modbus_bulk(
+        &mut self,
+        start_register: impl Into<u16>,
+        data: impl AsRef<[u16]>,
+    ) -> Result<(), S::Error> {
+        let start_register = start_register.into();
+        let data = data.as_ref();
+
+        let mut buff_1: heapless::Vec<u8, L> = heapless::Vec::new();
+        let mut buff_2: heapless::Vec<u8, L> = heapless::Vec::new();
+
+        let mut req = rmodbus::client::ModbusRequest::new(self.unit_id, rmodbus::ModbusProto::Rtu);
+        req.generate_set_holdings_bulk(start_register, data, &mut buff_1)?;
+
+        self.interface
+            .write_all(&buff_1)
+            .map_err(crate::error::Error::SerialError)?;
+
+        // Read the response - keep reading until we get WouldBlock or have enough data
+        let mut temp_buf = [0u8; 8]; // Temporary buffer for single reads
+        loop {
+            match self.interface.read(&mut temp_buf) {
+                Ok(bytes_read) => {
+                    // Add the read bytes to our buffer
+                    if buff_2.extend_from_slice(&temp_buf[0..bytes_read]).is_err() {
+                        return Err(crate::error::Error::BufferError);
+                    }
+                    // Check if we have enough data for a minimal response (unit_id + function + byte_count + at least 2 data bytes + 2 CRC)
+                    if buff_2.len() >= 7 {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // If WouldBlock and we have some data, break and try to parse
+                    if matches!(
+                        e.kind(),
+                        embedded_io::ErrorKind::Other | embedded_io::ErrorKind::TimedOut
+                    ) && !buff_2.is_empty()
+                    {
+                        break;
+                    }
+                    // Other errors should be propagated
+                    return Err(crate::error::Error::SerialError(e));
+                }
+            }
+        }
+        if buff_1.as_slice() != buff_2.as_slice() {
+            Err(crate::error::Error::InvalidResponse)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn read_modbus_single(&mut self, register: impl Into<u16>) -> Result<u16, S::Error> {
         let mut buff: heapless::Vec<u8, L> = heapless::Vec::new();
         let mut req = rmodbus::client::ModbusRequest::new(self.unit_id, rmodbus::ModbusProto::Rtu);
 
@@ -201,6 +256,17 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
             .first()
             .copied()
             .ok_or(crate::error::Error::InvalidResponse)
+    }
+
+    /// Set protection levels of the power supply.
+    ///
+    /// __Note:__ To apply these protection levels, this function has to write them to a
+    /// preset and then load the preset. This likely interrupts the output if already
+    /// enabled, and so it is highly recommended that protections are set before
+    /// enabling the PSU output.
+    // @TODO Test if this is the case.
+    pub fn set_protections(&mut self, _settings: ProtectionConfig) -> Result<(), S::Error> {
+        todo!()
     }
 }
 

@@ -1,6 +1,7 @@
 //! This module is used to define the registers on the XY PSUs.
 //!
 //! @TODO - How can we handle presets and the need to use preset when setting protections?
+#[derive(Debug, Copy, Clone)]
 #[repr(u16)]
 pub enum XyRegister {
     /// __R/W__ - Voltage setting.
