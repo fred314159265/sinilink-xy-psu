@@ -1,5 +1,7 @@
 use crate::{
-    error::Result, preset::ProtectionConfig, registers::XyRegister, types::TemperatureUnit,
+    error::Result,
+    preset::{PresetGroup, ProtectionConfig, XyPresetBuilder},
+    register::{BaudRate, ProductModel, TemperatureUnit, XyRegister},
 };
 use embedded_io::Error;
 
@@ -67,7 +69,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
 
     /// Return the measured external temperature sensor.
     ///
-    /// Unit of measurement depends on setting. See [Self::set_temperatire_unit].
+    /// Unit of measurement depends on setting. See [Self::set_temperature_unit].
     pub fn read_temperature_external(&mut self) -> Result<u16, S::Error> {
         let temp_external = self.read_modbus_single(XyRegister::TEx)?;
         Ok(temp_external)
@@ -100,11 +102,24 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         self.read_modbus_single(XyRegister::Model)
     }
 
+    /// Returns the interpreted product model.
+    pub fn get_product_model(&mut self) -> Result<ProductModel, S::Error> {
+        let _raw = self.get_product_model_raw()?;
+        unimplemented!()
+    }
+
+    /// Configure the baud rate of the PSU.
+    pub fn set_baud_rate(&mut self, baud_rate: BaudRate) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::BaudRateL, baud_rate)
+    }
+
+    /// Write to a single register of the PSU.
     pub fn write_modbus_single(
         &mut self,
         register: impl Into<u16>,
         data: impl Into<u16>,
     ) -> Result<(), S::Error> {
+        // @TODO we could directly compare the incoming bytes to our buffer in sequence without storing all the RX'd bytes a second buffer.
         let mut buff_1: heapless::Vec<u8, L> = heapless::Vec::new();
         let mut buff_2: heapless::Vec<u8, L> = heapless::Vec::new();
 
@@ -150,6 +165,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         }
     }
 
+    /// Write to multiple, sequential PSU registers.
     pub fn write_modbus_bulk(
         &mut self,
         start_register: impl Into<u16>,
@@ -158,6 +174,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         let start_register = start_register.into();
         let data = data.as_ref();
 
+        // @TODO we could directly compare the incoming bytes to our buffer in sequence without storing all the RX'd bytes a second buffer.
         let mut buff_1: heapless::Vec<u8, L> = heapless::Vec::new();
         let mut buff_2: heapless::Vec<u8, L> = heapless::Vec::new();
 
@@ -203,6 +220,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         }
     }
 
+    /// Read a single register from the PSU.
     pub fn read_modbus_single(&mut self, register: impl Into<u16>) -> Result<u16, S::Error> {
         let mut buff: heapless::Vec<u8, L> = heapless::Vec::new();
         let mut req = rmodbus::client::ModbusRequest::new(self.unit_id, rmodbus::ModbusProto::Rtu);
@@ -264,9 +282,31 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     /// preset and then load the preset. This likely interrupts the output if already
     /// enabled, and so it is highly recommended that protections are set before
     /// enabling the PSU output.
-    // @TODO Test if this is the case.
-    pub fn set_protections(&mut self, _settings: ProtectionConfig) -> Result<(), S::Error> {
-        todo!()
+    // @TODO Test if this is actually the case.
+    pub fn set_protections(
+        &mut self,
+        protection_settings: ProtectionConfig,
+    ) -> Result<(), S::Error> {
+        let group = PresetGroup::Group9;
+
+        // Get current voltage and current settings
+        let set_voltage = self.read_modbus_single(XyRegister::VSet)?;
+        let set_current = self.read_modbus_single(XyRegister::ISet)?;
+
+        // Get current output state
+        let set_output_state = self.read_modbus_single(XyRegister::OnOff)?;
+
+        let preset = XyPresetBuilder::new(group, set_voltage, set_current)
+            .with_protections(protection_settings)
+            .with_output(set_output_state != 0)
+            .build()
+            .unwrap();
+
+        // Write preset to the PSU register
+        preset.write(self)?;
+
+        // Load preset to apply it and make it active settings
+        self.write_modbus_single(XyRegister::ExtractM, group as u16)
     }
 }
 

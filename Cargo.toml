@@ -5,14 +5,13 @@ edition = "2024"
 
 [features]
 default = []
-no-std = []
+no_std = []
 
 [dependencies]
 embedded-io = "0.6.1"
 fugit = "0.3.7"
-heapless = "0.8.0"
-modular-bitfield = "0.12"
 rmodbus = { version = "0.10", default-features = false, features = ["heapless"] }
+heapless = "0.8.0"
 strum = { version = "0.27.2", default-features = false, features = [
     "strum_macros",
 ] }

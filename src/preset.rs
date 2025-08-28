@@ -3,7 +3,7 @@ use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 use thiserror::Error;
 
-use crate::{error::Error, psu::XyPsu, types::State};
+use crate::{error::Error, psu::XyPsu, register::State};
 
 /// Use [`XyPresetBuilder`] to create a preset.
 pub struct XyPreset {
@@ -19,21 +19,23 @@ pub struct XyPreset {
 }
 
 impl XyPreset {
-    // pub fn new(index: u8, voltage_mv) -> Self {
-    //     todo!()
-    // }
-
     /// Write this preset to the device.
     pub fn write<S: embedded_io::Read + embedded_io::Write, const L: usize>(
         &self,
         interface: &mut XyPsu<S, L>,
     ) -> Result<(), Error<S::Error>> {
-        use XyPresetOffsets as XPO;
         interface.write_modbus_single(
             XyPresetOffsets::VSet.address_in_group(self.group),
             self.voltage_setting_mv,
         )?;
 
+        let (start_address, write_buffer) = self.generate_write_data_and_offset();
+
+        interface.write_modbus_bulk(start_address, write_buffer)
+    }
+
+    pub fn generate_write_data_and_offset(&self) -> (u16, [u16; XyPresetOffsets::COUNT]) {
+        use XyPresetOffsets as XPO;
         let mut write_buffer: [u16; _] = [0x00; XPO::COUNT];
 
         write_buffer[XPO::VSet as usize] = self.voltage_setting_mv;
@@ -54,12 +56,9 @@ impl XyPreset {
         write_buffer[XPO::SIni as usize] = self.output_enable as u16;
         write_buffer[XPO::SEtp as usize] = self.protection.over_temperature;
 
-        // To write as sequence, we need create a fn which maps the Preset type to a start address and sequential bytes.
-        // Create buffer of suitable length
-        // Set each value using offset as u16
-        //
-        //  @TODO fill in other writes.
-        todo!()
+        let start_address = XPO::VSet.address_in_group(self.group);
+
+        (start_address, write_buffer)
     }
 }
 
@@ -77,6 +76,7 @@ pub struct XyPresetBuilder {
     output_enable: State,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for XyPresetBuilder {
     fn default() -> Self {
         XyPresetBuilder {
@@ -126,6 +126,12 @@ impl XyPresetBuilder {
         self
     }
 
+    /// Set all protection options at once.
+    pub fn with_protections(mut self, protections: ProtectionConfig) -> Self {
+        self.protection = protections;
+        self
+    }
+
     /// Set output voltage level.
     pub fn with_set_v(mut self, voltage_mv: u16) -> Self {
         self.voltage_setting_mv = voltage_mv;
@@ -139,20 +145,20 @@ impl XyPresetBuilder {
     }
 
     /// Set output state.
-    pub fn with_output(mut self, output_enable: State) -> Self {
-        self.output_enable = output_enable;
+    pub fn with_output(mut self, output_enable: impl Into<State>) -> Self {
+        self.output_enable = output_enable.into();
         self
     }
 
     /// Set under-voltage protection level in preset. (@TODO is UVP based on input voltage?)
     pub fn with_uvp(mut self, voltage_mv: u32) -> Self {
-        self.protection.over_voltage_mv = voltage_mv;
+        self.protection.under_voltage_mv = voltage_mv;
         self
     }
 
     /// Set over-voltage protection level in preset.
     pub fn with_ovp(mut self, voltage_mv: u32) -> Self {
-        self.protection.under_voltage_mv = voltage_mv;
+        self.protection.over_voltage_mv = voltage_mv;
         self
     }
 
@@ -200,7 +206,6 @@ pub enum XyPresetBuilderError {
 }
 
 /// This struct is used to define the configuration of the protection features. E.g. over-voltage protection.
-#[allow(unused)]
 #[derive(Debug)]
 pub struct ProtectionConfig {
     /// Under-voltage protection level in milli-volts.
@@ -295,10 +300,11 @@ pub enum XyPresetOffsets {
 impl XyPresetOffsets {
     /// Return the address of this register provided the group number (0 - 9).
     pub fn address_in_group(&self, group: PresetGroup) -> u16 {
-        (*self as u16) * (group as u16)
+        PRESET_OFFSET + (group as u16 * 0x10) + *self as u16
     }
 }
 
+/// This enum represents all possible preset groups.
 #[derive(Debug, Clone, Copy)]
 #[repr(u16)]
 pub enum PresetGroup {
@@ -315,6 +321,7 @@ pub enum PresetGroup {
 }
 
 impl TryFrom<u32> for PresetGroup {
+    // @TODO should probably have own error type, but I am lazy.
     type Error = ();
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
@@ -331,6 +338,48 @@ impl TryFrom<u32> for PresetGroup {
             8 => Ok(PG::Group8),
             9 => Ok(PG::Group9),
             _ => Err(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn preset_register_adress() {
+        let register = XyPresetOffsets::VSet;
+
+        let address = register.address_in_group(PresetGroup::Group0);
+        assert_eq!(address, 0x50);
+
+        let address = register.address_in_group(PresetGroup::Group3);
+        assert_eq!(address, 0x80);
+
+        let register = XyPresetOffsets::SOwhL;
+        let address = register.address_in_group(PresetGroup::Group3);
+        assert_eq!(address, 0x80 + 0x0A);
+    }
+
+    #[test]
+    fn preset_write_data_generation() {
+        // Create a preset such that all registers should be non-zero.
+        let preset = XyPresetBuilder::new(PresetGroup::Group3, 5000, 1000)
+            .with_output(true)
+            .with_uvp(1000)
+            .with_ohp(Duration::<u32, _, _>::hours(10u32) + Duration::<u32, _, _>::minutes(10u32))
+            .build()
+            .unwrap();
+
+        // Generate payload.
+        let (start_address, write_buffer) = preset.generate_write_data_and_offset();
+
+        // Check start address is as expected.
+        assert_eq!(start_address, 0x80);
+
+        // Check all values have been given a value.
+        for double in write_buffer {
+            assert_ne!(double, 0);
         }
     }
 }

@@ -1,6 +1,6 @@
 //! This crate provides an interface for communicating and controlling the Sinilink XY series of programmable power supplies.
 //!
-//! It supports `no-std` environments by use of the `no-std` feature flag.
+//! It supports `no_std` environments by use of the `no_std` feature flag.
 //!
 //! @TODO add table including electrical spec.
 //!
@@ -27,14 +27,12 @@
 //! * Stop bits: 1
 //! * Parity: None
 
-#![cfg_attr(feature = "no-std", no_std)]
-// #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(feature = "no_std", no_std)]
 
 pub mod error;
 pub mod preset;
 pub mod psu;
-mod registers;
-mod types;
+mod register;
 
 #[cfg(test)]
 mod mock_serial;
@@ -43,7 +41,6 @@ mod mock_serial;
 // * Determine units of all values and protections, based on setting and reading over modbus.
 //      * Update protection defaults to reflect this.
 // * Do we need a lookup table to establish bounds checking on values set?
-// * Consider moving to more basic MODBUS library?
 // * Add provisions for setting protections values using presets.
 //     * Because importing profile will set all protection, this will need to either:
 //         1. read active profile, modify one protection (and check all iset, vset match existing) and then apply.
