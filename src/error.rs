@@ -21,6 +21,8 @@ pub enum Error<I: embedded_io::Error> {
     BufferError,
     #[error("Passed value was too large to convert to u16.")]
     IntTooBig,
+    #[error("Other, non-descriptive error...")]
+    Other,
 }
 
 impl<I: embedded_io::Error> From<rmodbus::ErrorKind> for Error<I> {
@@ -32,5 +34,11 @@ impl<I: embedded_io::Error> From<rmodbus::ErrorKind> for Error<I> {
 impl<I: embedded_io::Error> From<core::num::TryFromIntError> for Error<I> {
     fn from(_value: core::num::TryFromIntError) -> Self {
         Error::IntTooBig
+    }
+}
+
+impl<I: embedded_io::Error> From<()> for Error<I> {
+    fn from(_: ()) -> Self {
+        Error::Other
     }
 }

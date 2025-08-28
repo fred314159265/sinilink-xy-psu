@@ -46,6 +46,7 @@ mod mock_serial;
 //         1. read active profile, modify one protection (and check all iset, vset match existing) and then apply.
 //         2. User has to supply all protection values, and ones not provided are set to maximums, and then preset applied. (After making sure Vset, etc matches)
 //     * Will loading presets enable/disable the output?
+// Unify use of get/read/set/write
 
 // I suggest use of presets behind some kind of "set protections" method and a struct for configuring all protections.
 // * General support for presets.

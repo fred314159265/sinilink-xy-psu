@@ -3,14 +3,18 @@ use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 use thiserror::Error;
 
-use crate::{error::Error, psu::XyPsu, register::State};
+use crate::{
+    error::Error,
+    psu::XyPsu,
+    register::{State, Temperature, TemperatureUnit},
+};
 
 /// Use [`XyPresetBuilder`] to create a preset.
 pub struct XyPreset {
     /// Index number of this preset group (0 - 9).
     group: PresetGroup,
     /// Output voltage value.
-    voltage_setting_mv: u16,
+    voltage_setting_mv: u32,
     /// Output current limit value.
     current_setting_ma: u16,
     /// Protection configuration levels.
@@ -24,21 +28,23 @@ impl XyPreset {
         &self,
         interface: &mut XyPsu<S, L>,
     ) -> Result<(), Error<S::Error>> {
-        interface.write_modbus_single(
-            XyPresetOffsets::VSet.address_in_group(self.group),
-            self.voltage_setting_mv,
-        )?;
-
-        let (start_address, write_buffer) = self.generate_write_data_and_offset();
+        // To be able to write the temperature limits, we first need to know the unit as configured.
+        let unit = interface.read_temperature_unit()?;
+        let (start_address, write_buffer) = self.generate_write_data_and_offset(unit);
 
         interface.write_modbus_bulk(start_address, write_buffer)
     }
 
-    pub fn generate_write_data_and_offset(&self) -> (u16, [u16; XyPresetOffsets::COUNT]) {
+    pub fn generate_write_data_and_offset(
+        &self,
+        temperature_unit: impl Into<TemperatureUnit>,
+    ) -> (u16, [u16; XyPresetOffsets::COUNT]) {
         use XyPresetOffsets as XPO;
+
+        let temperature_unit = temperature_unit.into();
         let mut write_buffer: [u16; _] = [0x00; XPO::COUNT];
 
-        write_buffer[XPO::VSet as usize] = self.voltage_setting_mv;
+        write_buffer[XPO::VSet as usize] = u16::try_from(self.voltage_setting_mv / 10).unwrap();
         write_buffer[XPO::ISet as usize] = self.current_setting_ma;
         write_buffer[XPO::SLvp as usize] = (self.protection.under_voltage_mv / 10) as u16;
         write_buffer[XPO::SOvp as usize] = (self.protection.over_voltage_mv / 10) as u16;
@@ -52,9 +58,11 @@ impl XyPreset {
         write_buffer[XPO::SOahH as usize] = (self.protection.over_capacity_mah >> 16) as u16;
         write_buffer[XPO::SOwhL as usize] = self.protection.over_power_mw as u16;
         write_buffer[XPO::SOwhH as usize] = (self.protection.over_energy_mwh >> 16) as u16;
-        write_buffer[XPO::SOtp as usize] = self.protection.over_temperature;
+        write_buffer[XPO::SOtp as usize] =
+            self.protection.over_temperature.as_unit(temperature_unit);
         write_buffer[XPO::SIni as usize] = self.output_enable as u16;
-        write_buffer[XPO::SEtp as usize] = self.protection.over_temperature;
+        write_buffer[XPO::SEtp as usize] =
+            self.protection.over_temperature.as_unit(temperature_unit);
 
         let start_address = XPO::VSet.address_in_group(self.group);
 
@@ -67,7 +75,7 @@ pub struct XyPresetBuilder {
     /// Index number of this preset group (0 - 9).
     group: Option<PresetGroup>,
     /// Output voltage value.
-    voltage_setting_mv: u16,
+    voltage_setting_mv: u32,
     /// Output current limit value.
     current_setting_ma: u16,
     /// Protection configuration levels.
@@ -92,7 +100,7 @@ impl Default for XyPresetBuilder {
 impl XyPresetBuilder {
     pub fn new(
         group: impl Into<PresetGroup>,
-        voltage_mv: u16,
+        voltage_mv: u32,
         current_lim_ma: u16,
     ) -> XyPresetBuilder {
         let group_idx = Some(group.into());
@@ -133,7 +141,7 @@ impl XyPresetBuilder {
     }
 
     /// Set output voltage level.
-    pub fn with_set_v(mut self, voltage_mv: u16) -> Self {
+    pub fn with_set_v(mut self, voltage_mv: u32) -> Self {
         self.voltage_setting_mv = voltage_mv;
         self
     }
@@ -193,8 +201,8 @@ impl XyPresetBuilder {
     }
 
     /// Set over temperature protection level in preset.
-    pub fn with_otp(mut self, temperature: u16) -> Self {
-        self.protection.over_temperature = temperature;
+    pub fn with_otp(mut self, temperature: impl Into<Temperature>) -> Self {
+        self.protection.over_temperature = temperature.into();
         self
     }
 }
@@ -223,7 +231,7 @@ pub struct ProtectionConfig {
     /// Over energy protection level in milli-watt hours.
     pub over_energy_mwh: u32,
     /// Over-temperature protection level in unit as configured.
-    pub over_temperature: u16,
+    pub over_temperature: Temperature,
 }
 
 /// Default protections are essentially disabled.
@@ -238,7 +246,7 @@ impl Default for ProtectionConfig {
             over_time: Duration::<u32, _, _>::hours(999),
             over_capacity_mah: 99999,
             over_energy_mwh: 99999,
-            over_temperature: 999,
+            over_temperature: Temperature::Celsius(100),
         }
     }
 }
@@ -372,7 +380,7 @@ mod test {
             .unwrap();
 
         // Generate payload.
-        let (start_address, write_buffer) = preset.generate_write_data_and_offset();
+        let (start_address, write_buffer) = preset.generate_write_data_and_offset(TemperatureUnit::Celsius);
 
         // Check start address is as expected.
         assert_eq!(start_address, 0x80);

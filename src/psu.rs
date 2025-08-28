@@ -1,7 +1,7 @@
 use crate::{
     error::Result,
     preset::{PresetGroup, ProtectionConfig, XyPresetBuilder},
-    register::{BaudRate, ProductModel, TemperatureUnit, XyRegister},
+    register::{BaudRate, ProductModel, Temperature, TemperatureUnit, XyRegister},
 };
 use embedded_io::Error;
 
@@ -62,23 +62,32 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     /// Return the measured internal temperature.
     ///
     /// Unit of measurement depends on setting.
-    pub fn read_temperature_internal(&mut self) -> Result<u16, S::Error> {
-        let temp_internal = self.read_modbus_single(XyRegister::TIn)?;
-        Ok(temp_internal)
+    pub fn read_temperature_internal(&mut self) -> Result<Temperature, S::Error> {
+        let unit = self.read_temperature_unit()?;
+        let temp_internal_raw = self.read_modbus_single(XyRegister::TIn)?;
+        Ok(Temperature::new(temp_internal_raw, unit))
     }
 
     /// Return the measured external temperature sensor.
     ///
     /// Unit of measurement depends on setting. See [Self::set_temperature_unit].
-    pub fn read_temperature_external(&mut self) -> Result<u16, S::Error> {
-        let temp_external = self.read_modbus_single(XyRegister::TEx)?;
-        Ok(temp_external)
+    pub fn read_temperature_external(&mut self) -> Result<Temperature, S::Error> {
+        let unit = self.read_temperature_unit()?;
+        let temp_external_raw = self.read_modbus_single(XyRegister::TEx)?;
+        Ok(Temperature::new(temp_external_raw, unit))
     }
 
-    /// Return the measured external temperature sensor.
+    /// Set the temperature unit to use.
     pub fn set_temperature_unit(&mut self, unit: TemperatureUnit) -> Result<(), S::Error> {
-        self.write_modbus_single(XyRegister::VSet, unit as u16)?;
+        self.write_modbus_single(XyRegister::FC, unit as u16)?;
         Ok(())
+    }
+
+    /// Return the temperature unit in use.
+    pub fn read_temperature_unit(&mut self) -> Result<TemperatureUnit, S::Error> {
+        let value = self.read_modbus_single(XyRegister::FC)?;
+        let unit = TemperatureUnit::try_from(value)?;
+        Ok(unit)
     }
 
     /// Set the output target voltage. Value supplied in millivolts.
@@ -290,7 +299,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         let group = PresetGroup::Group9;
 
         // Get current voltage and current settings
-        let set_voltage = self.read_modbus_single(XyRegister::VSet)?;
+        let set_voltage = self.read_modbus_single(XyRegister::VSet)? as u32 * 10;
         let set_current = self.read_modbus_single(XyRegister::ISet)?;
 
         // Get current output state
