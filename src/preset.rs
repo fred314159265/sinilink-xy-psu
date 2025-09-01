@@ -29,7 +29,7 @@ impl XyPreset {
         interface: &mut XyPsu<S, L>,
     ) -> Result<(), Error<S::Error>> {
         // To be able to write the temperature limits, we first need to know the unit as configured.
-        let unit = interface.read_temperature_unit()?;
+        let unit = interface.get_temperature_unit()?;
         let (start_address, write_buffer) = self.generate_write_data_and_offset(unit);
 
         interface.write_modbus_bulk(start_address, write_buffer)
@@ -380,7 +380,8 @@ mod test {
             .unwrap();
 
         // Generate payload.
-        let (start_address, write_buffer) = preset.generate_write_data_and_offset(TemperatureUnit::Celsius);
+        let (start_address, write_buffer) =
+            preset.generate_write_data_and_offset(TemperatureUnit::Celsius);
 
         // Check start address is as expected.
         assert_eq!(start_address, 0x80);

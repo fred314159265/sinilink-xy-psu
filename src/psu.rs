@@ -6,6 +6,9 @@ use crate::{
 use embedded_io::Error;
 
 /// You can create a XyPsu using any interface which implements [embedded_io::Read] & [embedded_io::Write].
+///
+/// For it's methods, we generally use the nomenclature that "set" meant to write a configuration and "get" means to read
+/// back a configuration value. Where as "read" means to get a measured value.
 pub struct XyPsu<S: embedded_io::Read + embedded_io::Write, const L: usize = 128> {
     interface: S,
     /// Default for PSU is 0x01.
@@ -18,32 +21,32 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         Self { interface, unit_id }
     }
 
-    /// Return the measured output voltage in mV.
-    pub fn read_output_voltage_millivolts(&mut self) -> Result<u32, S::Error> {
+    /// Return the measured output voltage in millivolts.
+    pub fn read_output_voltage_mv(&mut self) -> Result<u32, S::Error> {
         let decivolts = self.read_modbus_single(XyRegister::VOut)?;
         Ok(decivolts as u32 * 10u32)
     }
 
-    /// Return the measured supply input voltage in mV.
-    pub fn read_input_voltage_millivolts(&mut self) -> Result<u32, S::Error> {
+    /// Return the measured supply input voltage in millivolts.
+    pub fn read_input_voltage_mv(&mut self) -> Result<u32, S::Error> {
         let decivolts = self.read_modbus_single(XyRegister::UIn)?;
         Ok(decivolts as u32 * 10u32)
     }
 
-    /// Return the measured output current in mA.
-    pub fn read_current_milliamps(&mut self) -> Result<u32, S::Error> {
+    /// Return the measured output current in milliamps.
+    pub fn read_current_ma(&mut self) -> Result<u32, S::Error> {
         let milliamps = self.read_modbus_single(XyRegister::IOut)?;
-        Ok(milliamps as u32)
+        Ok(milliamps as u32 * 10)
     }
 
-    /// Return the measured output current in mW.
+    /// Return the measured output current in milliwatts.
     pub fn read_power_mw(&mut self) -> Result<u32, S::Error> {
         let deciwatts = self.read_modbus_single(XyRegister::Power)?;
         // @TODO confirm raw value in deci-watts.
         Ok(deciwatts as u32 * 10)
     }
 
-    /// Return the measured output energy in mWh.
+    /// Return the measured output energy in milliwatt-hours.
     pub fn read_energy_mwh(&mut self) -> Result<u32, S::Error> {
         let energy_mwh_lower = self.read_modbus_single(XyRegister::WhLow)? as u32;
         let energy_mwh_upper = self.read_modbus_single(XyRegister::WhHigh)? as u32;
@@ -51,7 +54,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         Ok(energy_mwh_lower + (energy_mwh_upper << 16))
     }
 
-    /// Return the measured output capacity in mAh.
+    /// Return the measured output capacity in milliamp-hours.
     pub fn read_capacity_mah(&mut self) -> Result<u32, S::Error> {
         let energy_mah_lower = self.read_modbus_single(XyRegister::AhLow)? as u32;
         let energy_mah_upper = self.read_modbus_single(XyRegister::AhHigh)? as u32;
@@ -63,7 +66,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     ///
     /// Unit of measurement depends on setting.
     pub fn read_temperature_internal(&mut self) -> Result<Temperature, S::Error> {
-        let unit = self.read_temperature_unit()?;
+        let unit = self.get_temperature_unit()?;
         let temp_internal_raw = self.read_modbus_single(XyRegister::TIn)?;
         Ok(Temperature::new(temp_internal_raw, unit))
     }
@@ -72,7 +75,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     ///
     /// Unit of measurement depends on setting. See [Self::set_temperature_unit].
     pub fn read_temperature_external(&mut self) -> Result<Temperature, S::Error> {
-        let unit = self.read_temperature_unit()?;
+        let unit = self.get_temperature_unit()?;
         let temp_external_raw = self.read_modbus_single(XyRegister::TEx)?;
         Ok(Temperature::new(temp_external_raw, unit))
     }
@@ -84,24 +87,38 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     }
 
     /// Return the temperature unit in use.
-    pub fn read_temperature_unit(&mut self) -> Result<TemperatureUnit, S::Error> {
+    pub fn get_temperature_unit(&mut self) -> Result<TemperatureUnit, S::Error> {
         let value = self.read_modbus_single(XyRegister::FC)?;
         let unit = TemperatureUnit::try_from(value)?;
         Ok(unit)
     }
 
     /// Set the output target voltage. Value supplied in millivolts.
-    pub fn set_output_voltage(&mut self, voltage_mv: u32) -> Result<(), S::Error> {
+    pub fn set_output_voltage_mv(&mut self, voltage_mv: u32) -> Result<(), S::Error> {
         let decivolts = u16::try_from(voltage_mv / 10)?;
         self.write_modbus_single(XyRegister::VSet, decivolts)?;
         Ok(())
     }
 
+    /// Get the current output target voltage. Value returned in millivolts.
+    pub fn get_output_voltage_mv(&mut self) -> Result<u32, S::Error> {
+        let value = self.read_modbus_single(XyRegister::VOut)?;
+        let voltage_mv = value as u32 * 10;
+        Ok(voltage_mv)
+    }
+
     /// Set the output current limit. Value supplied in milliamps.
-    pub fn set_current_limit(&mut self, current_ma: u32) -> Result<(), S::Error> {
-        let current_ma = u16::try_from(current_ma)?;
-        self.write_modbus_single(XyRegister::ISet, current_ma)?;
+    pub fn set_current_limit_ma(&mut self, current_ma: u32) -> Result<(), S::Error> {
+        let current_deciamps = u16::try_from(current_ma / 10)?;
+        self.write_modbus_single(XyRegister::ISet, current_deciamps)?;
         Ok(())
+    }
+
+    /// Get the current output current limit value. Value supplied in milliamps.
+    pub fn get_current_limit_ma(&mut self) -> Result<u32, S::Error> {
+        let value = self.read_modbus_single(XyRegister::ISet)?;
+        let current_ma = value as u32 * 10;
+        Ok(current_ma)
     }
 
     /// Returns the raw register values for "MODEL" -> product model
@@ -112,6 +129,10 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     }
 
     /// Returns the interpreted product model.
+    ///
+    /// Not yet sure what the pattern is. So far we have observed:
+    /// *  => XY3607F
+    /// * 25856 | 0x6500 => XY7025
     pub fn get_product_model(&mut self) -> Result<ProductModel, S::Error> {
         let _raw = self.get_product_model_raw()?;
         unimplemented!()
@@ -437,7 +458,7 @@ mod tests {
 
         let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
 
-        let result = psu.read_output_voltage_millivolts();
+        let result = psu.read_output_voltage_mv();
 
         // Check that the request was written correctly
         let written_data = psu.interface.written_data();
@@ -477,7 +498,7 @@ mod tests {
         let mut psu: XyPsu<MockSerial, 128> = XyPsu::new(mock_serial, 0x01);
 
         // Test writing to register 0x10 with value 0x1234
-        let result = psu.set_output_voltage(24000);
+        let result = psu.set_output_voltage_mv(24000);
         assert!(result.is_ok());
 
         // Check that the correct Modbus RTU frame was written

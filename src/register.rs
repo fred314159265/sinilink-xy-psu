@@ -90,6 +90,13 @@ pub enum XyRegister {
     /// after writing.
     ExtractM = 0x1D,
     /// __R/W__ - Device status.
+    ///
+    /// Used to enter and exit sleep (screen off, ON/OFF button fading in and out red.)
+    ///
+    /// 0x00 = sleep/off
+    /// 0x01 = awake/on
+    ///
+    /// This means it is compatible with [`State`].
     Device = 0x1E,
     /// __R/W__ - MPPT switch.
     MpptSw = 0x1F,
@@ -211,6 +218,12 @@ pub enum State {
     Off = 0x00,
     /// Enabled.
     On = 0x01,
+}
+
+impl From<State> for u16 {
+    fn from(value: State) -> Self {
+        value as u16
+    }
 }
 
 impl From<State> for bool {
