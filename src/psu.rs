@@ -1,9 +1,12 @@
 use crate::{
     error::Result,
     preset::{PresetGroup, ProtectionConfig, XyPresetBuilder},
-    register::{BaudRate, ProductModel, Temperature, TemperatureUnit, XyRegister},
+    register::{
+        BaudRate, ControlMode, ProductModel, State, Temperature, TemperatureUnit, XyRegister,
+    },
 };
 use embedded_io::Error;
+use fugit::Duration;
 
 /// You can create a XyPsu using any interface which implements [embedded_io::Read] & [embedded_io::Write].
 ///
@@ -23,14 +26,14 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
 
     /// Return the measured output voltage in millivolts.
     pub fn read_output_voltage_mv(&mut self) -> Result<u32, S::Error> {
-        let decivolts = self.read_modbus_single(XyRegister::VOut)?;
-        Ok(decivolts as u32 * 10u32)
+        let centivolts = self.read_modbus_single(XyRegister::VOut)?;
+        Ok(centivolts as u32 * 10u32)
     }
 
     /// Return the measured supply input voltage in millivolts.
     pub fn read_input_voltage_mv(&mut self) -> Result<u32, S::Error> {
-        let decivolts = self.read_modbus_single(XyRegister::UIn)?;
-        Ok(decivolts as u32 * 10u32)
+        let centivolts = self.read_modbus_single(XyRegister::UIn)?;
+        Ok(centivolts as u32 * 10u32)
     }
 
     /// Return the measured output current in milliamps.
@@ -42,8 +45,8 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     /// Return the measured output current in milliwatts.
     pub fn read_power_mw(&mut self) -> Result<u32, S::Error> {
         let deciwatts = self.read_modbus_single(XyRegister::Power)?;
-        // @TODO confirm raw value in deci-watts.
-        Ok(deciwatts as u32 * 10)
+        // raw value in deci-watts.
+        Ok(deciwatts as u32 * 100)
     }
 
     /// Return the measured output energy in milliwatt-hours.
@@ -62,22 +65,110 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
         Ok(energy_mah_lower + (energy_mah_upper << 16))
     }
 
+    /// Return the duration that the output has been enabled.
+    ///
+    /// @TODO create std version of this method.
+    pub fn read_output_time(&mut self) -> Result<Duration<u32, 1, 1>, S::Error> {
+        let time_h = self.read_modbus_single(XyRegister::OutH)? as u32;
+        let time_m = self.read_modbus_single(XyRegister::OutM)? as u32;
+        let time_s = self.read_modbus_single(XyRegister::OutS)? as u32;
+        let duration = Duration::<u32, 1, 1>::hours(time_h)
+            + Duration::<u32, 1, 1>::minutes(time_m)
+            + Duration::<u32, 1, 1>::secs(time_s);
+        Ok(duration)
+    }
+
     /// Return the measured internal temperature.
     ///
     /// Unit of measurement depends on setting.
     pub fn read_temperature_internal(&mut self) -> Result<Temperature, S::Error> {
         let unit = self.get_temperature_unit()?;
         let temp_internal_raw = self.read_modbus_single(XyRegister::TIn)?;
-        Ok(Temperature::new(temp_internal_raw, unit))
+        Ok(Temperature::from_centi(temp_internal_raw, unit))
     }
 
     /// Return the measured external temperature sensor.
     ///
     /// Unit of measurement depends on setting. See [Self::set_temperature_unit].
+    ///
+    /// @TODO test with external temp sensor.
     pub fn read_temperature_external(&mut self) -> Result<Temperature, S::Error> {
         let unit = self.get_temperature_unit()?;
         let temp_external_raw = self.read_modbus_single(XyRegister::TEx)?;
-        Ok(Temperature::new(temp_external_raw, unit))
+        Ok(Temperature::from_centi(temp_external_raw, unit))
+    }
+
+    /// Enable/disable the key lock.
+    pub fn set_lock_state(&mut self, state: impl Into<State>) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::Lock, state.into() as u16)?;
+        Ok(())
+    }
+
+    /// Get the current state of the key lock.
+    pub fn get_lock_state(&mut self) -> Result<State, S::Error> {
+        let value = self.read_modbus_single(XyRegister::Lock)?;
+        let state = State::from(value != 0);
+        Ok(state)
+    }
+
+    /// Get the currently active control mode. (CV or CC.)
+    pub fn get_current_control_mode(&mut self) -> Result<ControlMode, S::Error> {
+        let value = self.read_modbus_single(XyRegister::CvCc)?;
+        let state = ControlMode::from(value);
+        Ok(state)
+    }
+
+    /// Enable/disable the output.
+    pub fn set_output_state(&mut self, state: impl Into<State>) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::OnOff, state.into() as u16)?;
+        Ok(())
+    }
+
+    /// Read whether the output is enabled or disabled.
+    pub fn get_output_state(&mut self) -> Result<State, S::Error> {
+        let value = self.read_modbus_single(XyRegister::OnOff)?;
+        let state = State::from(value != 0);
+        Ok(state)
+    }
+
+    /// Read the current firmware version.
+    ///
+    /// Decimal value of `136` -> `v1.3.6`.
+    pub fn get_firmware_version(&mut self) -> Result<u16, S::Error> {
+        let value = self.read_modbus_single(XyRegister::Version)?;
+        Ok(value)
+    }
+
+    /// Set the Modbus unit ID of this PSU.
+    ///
+    /// Appears to only be applied after a power cycle.
+    pub fn set_slave_address(&mut self, address: u8) -> Result<(), S::Error> {
+        // Only 1-247 range is suitable ID for single Modbus device.
+        assert!(address <= 247);
+        self.write_modbus_single(XyRegister::SlaveAdd, address as u16)?;
+        Ok(())
+    }
+
+    /// Get the current Modbus unit ID of this PSU.
+    pub fn get_slave_address(&mut self) -> Result<u8, S::Error> {
+        let value = self.read_modbus_single(XyRegister::SlaveAdd)?;
+        let address = u8::try_from(value)?;
+        Ok(address)
+    }
+
+    /// Sets the configured baud rate on the PSU.
+    ///
+    /// Appears to only be applied after a power cycle.
+    pub fn set_baudrate(&mut self, baud_rate: BaudRate) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::BaudRateL, baud_rate as u16)?;
+        Ok(())
+    }
+
+    /// Reads the configured baud rate on the PSU.
+    pub fn get_baudrate(&mut self) -> Result<BaudRate, S::Error> {
+        let value = self.read_modbus_single(XyRegister::BaudRateL)?;
+        let baudrate = BaudRate::try_from(value)?;
+        Ok(baudrate)
     }
 
     /// Set the temperature unit to use.
@@ -95,22 +186,22 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
 
     /// Set the output target voltage. Value supplied in millivolts.
     pub fn set_output_voltage_mv(&mut self, voltage_mv: u32) -> Result<(), S::Error> {
-        let decivolts = u16::try_from(voltage_mv / 10)?;
-        self.write_modbus_single(XyRegister::VSet, decivolts)?;
+        let centivolts = u16::try_from(voltage_mv / 10)?;
+        self.write_modbus_single(XyRegister::VSet, centivolts)?;
         Ok(())
     }
 
     /// Get the current output target voltage. Value returned in millivolts.
     pub fn get_output_voltage_mv(&mut self) -> Result<u32, S::Error> {
-        let value = self.read_modbus_single(XyRegister::VOut)?;
+        let value = self.read_modbus_single(XyRegister::VSet)?;
         let voltage_mv = value as u32 * 10;
         Ok(voltage_mv)
     }
 
     /// Set the output current limit. Value supplied in milliamps.
     pub fn set_current_limit_ma(&mut self, current_ma: u32) -> Result<(), S::Error> {
-        let current_deciamps = u16::try_from(current_ma / 10)?;
-        self.write_modbus_single(XyRegister::ISet, current_deciamps)?;
+        let current_centiamps = u16::try_from(current_ma / 10)?;
+        self.write_modbus_single(XyRegister::ISet, current_centiamps)?;
         Ok(())
     }
 

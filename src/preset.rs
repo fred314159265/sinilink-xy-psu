@@ -270,11 +270,11 @@ pub static PRESET_OFFSET: u16 = 0x50;
 pub enum XyPresetOffsets {
     /// __R/W__ - Voltage setting.
     ///
-    /// Value is u16 in deci-volts. E.g. 5.0V => `500`.
+    /// Value is u16 in centi-volts. E.g. 5.0V => `500`.
     VSet = 0x00,
     /// __R/W__ - Current setting.
     ///
-    /// Value is u16 in milli-volts. E.g. 1.5A => `1500`.
+    /// Value is u16 in centi-volts. E.g. 1.5A => `150`.
     ISet = 0x01,
     /// __R/W__ - Low voltage protection.
     SLvp = 0x02,

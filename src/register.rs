@@ -7,7 +7,7 @@ use strum_macros::EnumIter;
 pub enum XyRegister {
     /// __R/W__ - Voltage setting.
     ///
-    /// Value is u16 in deci-volts. E.g. 5.0V => `500`.
+    /// Value is u16 in centi-volts. E.g. 5.0V => `500`.
     VSet = 0x00,
     /// __R/W__ - Current setting.
     ///
@@ -18,7 +18,7 @@ pub enum XyRegister {
     /// __R__ - Output current display value.
     IOut = 0x03,
     /// __R__ - Output power display value.
-    Power = 0x40,
+    Power = 0x04,
     /// __R__ - Input voltage display value.
     UIn = 0x05,
     /// __R__ - Output Ah is low by 16 bits.
@@ -155,6 +155,16 @@ pub enum ControlMode {
     Cc,
 }
 
+impl From<u16> for ControlMode {
+    fn from(value: u16) -> Self {
+        if value != 0 {
+            ControlMode::Cc
+        } else {
+            ControlMode::Cv
+        }
+    }
+}
+
 /// Used for setting and reading unit used for temperature readings.
 // @TODO read value from device to find out what value is what.
 #[derive(Debug, Clone, Copy)]
@@ -205,6 +215,26 @@ pub enum BaudRate {
 impl From<BaudRate> for u16 {
     fn from(value: BaudRate) -> Self {
         value as u16
+    }
+}
+
+impl TryFrom<u16> for BaudRate {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        use BaudRate as BR;
+        match value {
+            x if x == BR::_9600 as u16 => Ok(BR::_9600),
+            x if x == BR::_14400 as u16 => Ok(BR::_14400),
+            x if x == BR::_19200 as u16 => Ok(BR::_19200),
+            x if x == BR::_38400 as u16 => Ok(BR::_38400),
+            x if x == BR::_5600 as u16 => Ok(BR::_5600),
+            x if x == BR::_576000 as u16 => Ok(BR::_576000),
+            x if x == BR::_115200 as u16 => Ok(BR::_115200),
+            x if x == BR::_2400 as u16 => Ok(BR::_2400),
+            x if x == BR::_4800 as u16 => Ok(BR::_4800),
+            _ => Err(()),
+        }
     }
 }
 
@@ -312,6 +342,14 @@ pub enum Temperature {
 }
 
 impl Temperature {
+    /// Create a [`Temperature`] from a temperature value pass in using the units of centi-degree C/F.
+    ///
+    /// E.g. 294 => 29.4° but get rounded to 29°
+    pub fn from_centi(value: u16, unit: TemperatureUnit) -> Self {
+        let rounded = Self::div_10_and_round(value);
+        Self::new(rounded, unit)
+    }
+
     pub fn new(value: u16, unit: TemperatureUnit) -> Self {
         match unit {
             TemperatureUnit::Celsius => Self::Celsius(value),
@@ -346,25 +384,22 @@ impl Temperature {
     /// Convert fahrenheit to celsius.
     fn f_to_c(temp_f: u16) -> u16 {
         let multiplied = ((temp_f * 10 - 320) * 5) / 9;
-
-        let decimal = multiplied % 10;
-        if decimal >= 5 {
-            (multiplied / 10) + 1
-        } else {
-            multiplied / 10
-        }
+        Self::div_10_and_round(multiplied)
     }
 
     /// Convert celsius to fahrenheit.
     fn c_to_f(temp_c: u16) -> u16 {
-        // We calculate with one fixed decimal place and manually calculate rounding.
+        // We calculate with one fixed centimal place and manually calculate rounding.
         let multiplied = ((temp_c * 90) / 5) + 320;
+        Self::div_10_and_round(multiplied)
+    }
 
-        let decimal = multiplied % 10;
-        if decimal >= 5 {
-            (multiplied / 10) + 1
+    fn div_10_and_round(value: u16) -> u16 {
+        let centimal = value % 10;
+        if centimal >= 5 {
+            (value / 10) + 1
         } else {
-            multiplied / 10
+            value / 10
         }
     }
 }
