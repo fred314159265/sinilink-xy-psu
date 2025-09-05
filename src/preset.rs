@@ -328,6 +328,14 @@ pub enum PresetGroup {
     Group9 = 0x09,
 }
 
+impl TryFrom<u16> for PresetGroup {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        PresetGroup::try_from(value as u32)
+    }
+}
+
 impl TryFrom<u32> for PresetGroup {
     // @TODO should probably have own error type, but I am lazy.
     type Error = ();

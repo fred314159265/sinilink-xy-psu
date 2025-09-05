@@ -2,7 +2,8 @@ use crate::{
     error::Result,
     preset::{PresetGroup, ProtectionConfig, XyPresetBuilder},
     register::{
-        BaudRate, ControlMode, ProductModel, State, Temperature, TemperatureUnit, XyRegister,
+        BacklightBrightness, BaudRate, ControlMode, ProductModel, ProtectionStatus, State,
+        Temperature, TemperatureUnit, XyRegister,
     },
 };
 use embedded_io::Error;
@@ -232,6 +233,166 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
     /// Configure the baud rate of the PSU.
     pub fn set_baud_rate(&mut self, baud_rate: BaudRate) -> Result<(), S::Error> {
         self.write_modbus_single(XyRegister::BaudRateL, baud_rate)
+    }
+
+    /// Return which protections have been triggered, if any.
+    pub fn get_protection_status(&mut self) -> Result<ProtectionStatus, S::Error> {
+        let _raw = self.read_modbus_single(XyRegister::Protect)?;
+        let bytes = _raw.to_le_bytes();
+        let status = ProtectionStatus::from_bytes(bytes);
+        Ok(status)
+    }
+
+    /// Clear any active protection flags.
+    pub fn clear_protections(&mut self) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::Protect, 0x00_u16)?;
+        Ok(())
+    }
+
+    /// Set the backlight brightness level.
+    pub fn set_backlight(&mut self, level: BacklightBrightness) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::BLed, level as u16)?;
+        Ok(())
+    }
+
+    /// Get the current backlight brightness level.
+    pub fn get_backlight(&mut self) -> Result<BacklightBrightness, S::Error> {
+        let value = self.read_modbus_single(XyRegister::BLed)?;
+        let level = BacklightBrightness::try_from(value)?;
+        Ok(level)
+    }
+
+    /// Enable/disable the buzzer..
+    pub fn set_buzzer_enabled(&mut self, state: impl Into<State>) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::Buzzer, state.into() as u16)?;
+        Ok(())
+    }
+
+    /// Get the current buzzer enable state.
+    pub fn get_buzzer_enabled(&mut self) -> Result<State, S::Error> {
+        let value = self.read_modbus_single(XyRegister::Buzzer)?;
+        let state = State::from(value != 0);
+        Ok(state)
+    }
+
+    /// Activate preset by index.
+    pub fn set_active_preset(&mut self, group: impl Into<PresetGroup>) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::ExtractM, group.into() as u16)?;
+        Ok(())
+    }
+
+    /// Get the current buzzer enable state.
+    pub fn get_active_preset(&mut self) -> Result<PresetGroup, S::Error> {
+        let value = self.read_modbus_single(XyRegister::ExtractM)?;
+        let group = PresetGroup::try_from(value)?;
+        Ok(group)
+    }
+
+    /// Enter or exit sleep mode. (Screen off, ON/OFF button fading in and out red.)
+    pub fn set_sleep_state(&mut self, activate_sleep: impl Into<State>) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::Device, !activate_sleep.into() as u16)?;
+        Ok(())
+    }
+
+    /// Get whether the device is currently in sleep mode.
+    pub fn get_sleep_state(&mut self) -> Result<State, S::Error> {
+        let value = self.read_modbus_single(XyRegister::Device)?;
+        let state = State::from(value != 0);
+        Ok(state)
+    }
+
+    // /// Set the offset used for the internal temperature sensor.
+    // pub fn set_temperature_offset_input(&mut self, offset: impl Into<Temperature>) -> Result<(), S::Error> {
+    //     let unit = self.get_temperature_unit()?;
+    //     let temperature_in_unit = offset.into().as_unit(unit);
+    //     println!("Offset: {}", temperature_in_unit);
+    //     self.write_modbus_single(XyRegister::TInOffset, temperature_in_unit * 10)?;
+    //     Ok(())
+    // }
+
+    // /// Get the current offset used for the internal temperature sensor.
+    // pub fn get_temperature_offset_input(&mut self) -> Result<Temperature, S::Error> {
+    //     let unit = self.get_temperature_unit()?;
+    //     let value = self.read_modbus_single(XyRegister::TInOffset)?;
+    //     let temp_offset = Temperature::from_centi(value, unit);
+    //     Ok(temp_offset)
+    // }
+
+    /// Enable or disable MPPT functionality.
+    pub fn set_mppt_enabled(&mut self, activate_sleep: impl Into<State>) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::MpptSw, activate_sleep.into() as u16)?;
+        Ok(())
+    }
+
+    /// Get whether MPPT is currently in enabled or disabled.
+    pub fn get_mppt_enabled(&mut self) -> Result<State, S::Error> {
+        let value = self.read_modbus_single(XyRegister::MpptSw)?;
+        let state = State::from(value != 0);
+        Ok(state)
+    }
+
+    /// Set the MPPT coefficient. Recommended [`75` - `85`]
+    ///
+    /// Note: Value passed in is 10x bigger than shown on screen.
+    pub fn set_mppt_k_value(&mut self, mppt_k: u16) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::MpptK, mppt_k)?;
+        Ok(())
+    }
+
+    /// Get the current MPPT coefficient. Default value of `80`.
+    ///
+    /// Value returned is 10x what is shown on the display.
+    ///
+    /// E.g. `0.75` on display => `75` as retuned by this function.
+    pub fn get_mppt_k_value(&mut self) -> Result<u16, S::Error> {
+        let value = self.read_modbus_single(XyRegister::MpptK)?;
+        Ok(value)
+    }
+
+    // MPPT max charging current doesn't appear to work. Normal current limit value does seem to work.
+    // /// Set the MPPT maximum charging current in units of milli-amps.
+    // pub fn set_mppt_max_current_ma(&mut self, current_ma: u32) -> Result<(), S::Error> {
+    //     let current_raw: u16 = (current_ma / 10).try_into()?;
+    //     self.write_modbus_single(XyRegister::BatFul, current_raw)?;
+    //     Ok(())
+    // }
+
+    // /// Get the MPPT maximum charging current in units of milli-amps.
+    // pub fn get_mppt_max_current_ma(&mut self) -> Result<u32, S::Error> {
+    //     let value = self.read_modbus_single(XyRegister::BatFul)?;
+    //     Ok(value as u32 * 10)
+    // }
+
+    /// Enable or disable constant power mode.
+    pub fn set_constant_power_enabled(
+        &mut self,
+        activate_sleep: impl Into<State>,
+    ) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::CwSw, activate_sleep.into() as u16)?;
+        Ok(())
+    }
+
+    /// Get whether constant power mode is currently enabled or disabled.
+    pub fn get_constant_power_enabled(&mut self) -> Result<State, S::Error> {
+        let value = self.read_modbus_single(XyRegister::CwSw)?;
+        let state = State::from(value != 0);
+        Ok(state)
+    }
+
+    /// Set the constant power power level. Units of watts.
+    ///
+    /// This can be set without enabling constant power mode.
+    pub fn set_constant_power_level(&mut self, mppt_k: u16) -> Result<(), S::Error> {
+        self.write_modbus_single(XyRegister::Cw, mppt_k)?;
+        Ok(())
+    }
+
+    /// Get the current constant power power level. Units of watts.
+    ///
+    /// This can be read without enabling constant power mode.
+    pub fn get_constant_power_level(&mut self) -> Result<u16, S::Error> {
+        let value = self.read_modbus_single(XyRegister::Cw)?;
+        Ok(value)
     }
 
     /// Write to a single register of the PSU.
