@@ -16,7 +16,7 @@ pub struct XyPreset {
     /// Output voltage value.
     voltage_setting_mv: u32,
     /// Output current limit value.
-    current_setting_ma: u16,
+    current_setting_ma: u32,
     /// Protection configuration levels.
     protection: ProtectionConfig,
     output_enable: State,
@@ -45,10 +45,11 @@ impl XyPreset {
         let mut write_buffer: [u16; _] = [0x00; XPO::COUNT];
 
         write_buffer[XPO::VSet as usize] = u16::try_from(self.voltage_setting_mv / 10).unwrap();
-        write_buffer[XPO::ISet as usize] = self.current_setting_ma;
+        write_buffer[XPO::ISet as usize] = u16::try_from(self.current_setting_ma / 10).unwrap();
         write_buffer[XPO::SLvp as usize] = (self.protection.under_voltage_mv / 10) as u16;
         write_buffer[XPO::SOvp as usize] = (self.protection.over_voltage_mv / 10) as u16;
-        write_buffer[XPO::SOcp as usize] = self.protection.over_current_ma;
+        write_buffer[XPO::SOcp as usize] =
+            u16::try_from(self.protection.over_current_ma / 10).unwrap();
         write_buffer[XPO::SOpp as usize] = (self.protection.over_power_mw / 10) as u16;
         write_buffer[XPO::SOhpH as usize] =
             u16::try_from(self.protection.over_time.to_hours()).unwrap();
@@ -56,7 +57,7 @@ impl XyPreset {
             u16::try_from(self.protection.over_time.to_minutes() % 60).unwrap();
         write_buffer[XPO::SOahL as usize] = self.protection.over_capacity_mah as u16;
         write_buffer[XPO::SOahH as usize] = (self.protection.over_capacity_mah >> 16) as u16;
-        write_buffer[XPO::SOwhL as usize] = self.protection.over_power_mw as u16;
+        write_buffer[XPO::SOwhL as usize] = (self.protection.over_power_mw / 10) as u16;
         write_buffer[XPO::SOwhH as usize] = (self.protection.over_energy_mwh >> 16) as u16;
         write_buffer[XPO::SOtp as usize] =
             self.protection.over_temperature.as_unit(temperature_unit);
@@ -65,7 +66,7 @@ impl XyPreset {
             self.protection.over_temperature.as_unit(temperature_unit);
 
         let start_address = XPO::VSet.address_in_group(self.group);
-
+        println!("{:#?}", (start_address, write_buffer));
         (start_address, write_buffer)
     }
 }
@@ -77,7 +78,7 @@ pub struct XyPresetBuilder {
     /// Output voltage value.
     voltage_setting_mv: u32,
     /// Output current limit value.
-    current_setting_ma: u16,
+    current_setting_ma: u32,
     /// Protection configuration levels.
     protection: ProtectionConfig,
     /// What state the output should be in when the preset is loaded.
@@ -101,7 +102,7 @@ impl XyPresetBuilder {
     pub fn new(
         group: impl Into<PresetGroup>,
         voltage_mv: u32,
-        current_lim_ma: u16,
+        current_lim_ma: u32,
     ) -> XyPresetBuilder {
         let group_idx = Some(group.into());
 
@@ -147,7 +148,7 @@ impl XyPresetBuilder {
     }
 
     /// Set output current limit.
-    pub fn with_set_i_lim(mut self, current_ma: u16) -> Self {
+    pub fn with_set_i_lim(mut self, current_ma: u32) -> Self {
         self.current_setting_ma = current_ma;
         self
     }
@@ -171,7 +172,7 @@ impl XyPresetBuilder {
     }
 
     /// Set over-current protection level in preset.
-    pub fn with_ocp(mut self, current_ma: u16) -> Self {
+    pub fn with_ocp(mut self, current_ma: u32) -> Self {
         self.protection.over_current_ma = current_ma;
         self
     }
@@ -221,7 +222,7 @@ pub struct ProtectionConfig {
     /// Over-voltage protection level in milli-volts.
     pub over_voltage_mv: u32,
     /// Over-current protection level in milli-amps.
-    pub over_current_ma: u16,
+    pub over_current_ma: u32,
     /// Over-power protection level in milli-watts.
     pub over_power_mw: u32,
     /// Over-time protection duration.
@@ -240,13 +241,13 @@ impl Default for ProtectionConfig {
         // @TODO confirm units to raw conversion is as expected.
         ProtectionConfig {
             under_voltage_mv: 0,
-            over_voltage_mv: 99999,
-            over_current_ma: 9999,
+            over_voltage_mv: 100_000,
+            over_current_ma: 50_000,
             over_power_mw: 99999,
-            over_time: Duration::<u32, _, _>::hours(999),
-            over_capacity_mah: 99999,
-            over_energy_mwh: 99999,
-            over_temperature: Temperature::Celsius(100),
+            over_time: Duration::<u32, _, _>::hours(0),
+            over_capacity_mah: 0,
+            over_energy_mwh: 0,
+            over_temperature: Temperature::Celsius(0),
         }
     }
 }
@@ -384,6 +385,10 @@ mod test {
             .with_output(true)
             .with_uvp(1000)
             .with_ohp(Duration::<u32, _, _>::hours(10u32) + Duration::<u32, _, _>::minutes(10u32))
+            .with_otp(Temperature::from_centi(1000, TemperatureUnit::Celsius))
+            .with_opp(0xFFFFFF)
+            .with_owhp(0xFFFFFF)
+            .with_oahp(0xFFFFFF)
             .build()
             .unwrap();
 

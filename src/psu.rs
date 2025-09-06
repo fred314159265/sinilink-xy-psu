@@ -476,8 +476,8 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
                     if buff_2.extend_from_slice(&temp_buf[0..bytes_read]).is_err() {
                         return Err(crate::error::Error::BufferError);
                     }
-                    // Check if we have enough data for a minimal response (unit_id + function + byte_count + at least 2 data bytes + 2 CRC)
-                    if buff_2.len() >= 7 {
+                    // Check if we have enough data for a minimal response
+                    if buff_2.len() >= 8 {
                         break;
                     }
                 }
@@ -495,7 +495,9 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
                 }
             }
         }
-        if buff_1.as_slice() != buff_2.as_slice() {
+        // @TODO Check CRC?
+        if buff_1.as_slice()[0..=5] != buff_2.as_slice()[0..=5] {
+            // First 6 bytes of message sent should match.
             Err(crate::error::Error::InvalidResponse)
         } else {
             Ok(())
@@ -560,20 +562,18 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
 
     /// Set protection levels of the power supply.
     ///
-    /// __Note:__ To apply these protection levels, this function has to write them to a
-    /// preset and then load the preset. This likely interrupts the output if already
-    /// enabled, and so it is highly recommended that protections are set before
-    /// enabling the PSU output.
-    // @TODO Test if this is actually the case.
+    /// __Note:__ This works by modifying the active preset group. This
+    /// could cause unintended modifications to preset groups if not careful.
     pub fn set_protections(
         &mut self,
         protection_settings: ProtectionConfig,
     ) -> Result<(), S::Error> {
-        let group = PresetGroup::Group9;
+        // Get currently active preset group so we can write values to the active group.
+        let group = self.get_active_preset()?;
 
         // Get current voltage and current settings
-        let set_voltage = self.read_modbus_single(XyRegister::VSet)? as u32 * 10;
-        let set_current = self.read_modbus_single(XyRegister::ISet)?;
+        let set_voltage = self.get_output_voltage_mv()?;
+        let set_current = self.get_current_limit_ma()?;
 
         // Get current output state
         let set_output_state = self.read_modbus_single(XyRegister::OnOff)?;
@@ -586,9 +586,7 @@ impl<S: embedded_io::Read + embedded_io::Write, const L: usize> XyPsu<S, L> {
 
         // Write preset to the PSU register
         preset.write(self)?;
-
-        // Load preset to apply it and make it active settings
-        self.write_modbus_single(XyRegister::ExtractM, group as u16)
+        Ok(())
     }
 }
 
