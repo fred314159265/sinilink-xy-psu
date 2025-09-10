@@ -10,8 +10,18 @@ Some other PSUs such as the DPS series (e.g. DPS5005) have a similar register se
 
 ## Current State
 
-This repo is currently in early stages of development, basic functionality has been tested but the API is very likely to change continually.
+This repo is currently in early stages of development, basic functionality has been tested but the API is very likely to change.
 
 ## Hardware
 
-@TODO: document serial port pinout, voltage levels, etc.
+The power supplies use a 4-way Molex Picoblade connector, the TX line outputs 0-3.3V.
+
+
+| Pin | Function | Notes                         |
+|-----|----------|-------------------------------|
+| 1   | VCC      | Outputs 5V.                   |
+| 2   | TX       | Connect to RX on UART device. |
+| 3   | RX       | Connect to TX on UART device. |
+| 4   | GND      |                               |
+
+<img src="assets\pinout.jpg" alt="Alt text" width="300">
