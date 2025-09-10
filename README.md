@@ -24,4 +24,4 @@ The power supplies use a 4-way Molex Picoblade connector, the TX line outputs 0-
 | 3   | RX       | Connect to TX on UART device. |
 | 4   | GND      |                               |
 
-<img src="assets\pinout.jpg" alt="Alt text" width="300">
+<img src="assets\pinout.jpg" alt="Image showing Molex Picoblade and pinout with colours" style="zoom: 20%;">
