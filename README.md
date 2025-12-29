@@ -12,6 +12,10 @@ Some other PSUs such as the DPS series (e.g. DPS5005) have a similar register se
 
 This repo is currently in early stages of development, basic functionality has been tested but the API is very likely to change.
 
+## [Documentation](https://fred314159265.github.io/sinilink-xy-psu/sinilink_xy_psu/)
+
+You can view the [Cargo doc pages here](https://fred314159265.github.io/sinilink-xy-psu/sinilink_xy_psu/).
+
 ## Hardware
 
 The power supplies use a 4-way Molex Picoblade connector, the TX line outputs 0-3.3V.
