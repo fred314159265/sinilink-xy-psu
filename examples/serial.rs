@@ -150,7 +150,7 @@ fn main() {
     use sinilink_xy_psu::preset::ProtectionConfig;
 
     let new_protections = ProtectionConfig {
-        under_voltage_mv: 11000,                         // 11.0V minimum
+        under_voltage_mv: 11000,                        // 11.0V minimum
         over_voltage_mv: 15000,                         // 15.0V maximum
         over_current_ma: 123,                           // 0.123A maximum
         over_power_mw: 9876,                            // 9.876W maximum

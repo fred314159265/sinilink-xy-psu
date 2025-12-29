@@ -119,7 +119,7 @@ impl ProductModel {
     ///
     /// # For Unknown Models
     ///
-    /// If this method returns `None` for your model, you can use [`XyPsu::set_scaling_factors`] 
+    /// If this method returns `None` for your model, you can use [`XyPsu::set_scaling_factors`]
     /// to manually specify scaling factors, and then use the normal scaled methods as normal.
     pub const fn scaling_factors(&self) -> Option<ScalingFactors> {
         match self {
@@ -139,7 +139,7 @@ impl ProductModel {
                 capacity_divisor: 10, // Same as current_divisor
                 energy_divisor: 100,  // power_divisor / 10
             }),
-            // @TODO: Verify these are correct
+            // These scaling factors have been checked.
             ProductModel::XY12522 => Some(ScalingFactors {
                 voltage_divisor: 10,
                 current_divisor: 10,
