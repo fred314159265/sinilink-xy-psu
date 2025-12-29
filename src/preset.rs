@@ -7,6 +7,7 @@ use crate::{
     error::Error,
     psu::XyPsu,
     register::{State, Temperature, TemperatureUnit},
+    scaling::ScalingFactors,
 };
 
 /// Use [`XyPresetBuilder`] to create a preset.
@@ -23,42 +24,57 @@ pub struct XyPreset {
 }
 
 impl XyPreset {
-    /// Write this preset to the device.
+    /// Write this preset to the device using adaptive scaling based on PSU model.
+    ///
+    /// This will automatically detect the PSU model and apply appropriate scaling factors.
+    /// Returns `ScalingNotAvailable` error if the model's scaling factors are unknown.
+    ///
+    /// # For Unknown Models
+    ///
+    /// If your PSU model has unknown scaling factors, use [`XyPsu::set_scaling_factors`]
+    /// to manually specify them before calling this method..
     pub fn write<S: embedded_io::Read + embedded_io::Write, const L: usize>(
         &self,
         interface: &mut XyPsu<S, L>,
     ) -> Result<(), Error<S::Error>> {
-        // To be able to write the temperature limits, we first need to know the unit as configured.
+        // Ensure scaling is loaded (lazy load on first call)
+        let scaling = interface.ensure_scaling()?;
         let unit = interface.get_temperature_unit()?;
-        let (start_address, write_buffer) = self.generate_write_data_and_offset(unit);
+        let (start_address, write_buffer) = self.generate_write_data_and_offset(unit, scaling);
 
         interface.write_modbus_bulk(start_address, write_buffer)
     }
 
+    /// Generate write data with scaling factors applied.
     pub fn generate_write_data_and_offset(
         &self,
         temperature_unit: impl Into<TemperatureUnit>,
+        scaling: ScalingFactors,
     ) -> (u16, [u16; XyPresetOffsets::COUNT]) {
         use XyPresetOffsets as XPO;
 
         let temperature_unit = temperature_unit.into();
         let mut write_buffer: [u16; _] = [0x00; XPO::COUNT];
 
-        write_buffer[XPO::VSet as usize] = u16::try_from(self.voltage_setting_mv / 10).unwrap();
-        write_buffer[XPO::ISet as usize] = u16::try_from(self.current_setting_ma / 10).unwrap();
-        write_buffer[XPO::SLvp as usize] = (self.protection.under_voltage_mv / 10) as u16;
-        write_buffer[XPO::SOvp as usize] = (self.protection.over_voltage_mv / 10) as u16;
+        write_buffer[XPO::VSet as usize] = scaling.voltage_mv_to_raw(self.voltage_setting_mv);
+        write_buffer[XPO::ISet as usize] = scaling.current_ma_to_raw(self.current_setting_ma);
+        write_buffer[XPO::SLvp as usize] =
+            scaling.voltage_mv_to_raw(self.protection.under_voltage_mv);
+        write_buffer[XPO::SOvp as usize] =
+            scaling.voltage_mv_to_raw(self.protection.over_voltage_mv);
         write_buffer[XPO::SOcp as usize] =
-            u16::try_from(self.protection.over_current_ma / 10).unwrap();
-        write_buffer[XPO::SOpp as usize] = (self.protection.over_power_mw / 10) as u16;
+            scaling.current_ma_to_raw(self.protection.over_current_ma);
+        write_buffer[XPO::SOpp as usize] = scaling.power_mw_to_raw(self.protection.over_power_mw);
         write_buffer[XPO::SOhpH as usize] =
             u16::try_from(self.protection.over_time.to_hours()).unwrap();
         write_buffer[XPO::SoHpM as usize] =
             u16::try_from(self.protection.over_time.to_minutes() % 60).unwrap();
-        write_buffer[XPO::SOahL as usize] = self.protection.over_capacity_mah as u16;
-        write_buffer[XPO::SOahH as usize] = (self.protection.over_capacity_mah >> 16) as u16;
-        write_buffer[XPO::SOwhL as usize] = (self.protection.over_power_mw / 10) as u16;
-        write_buffer[XPO::SOwhH as usize] = (self.protection.over_energy_mwh >> 16) as u16;
+        let scaled_capacity = self.protection.over_capacity_mah / scaling.capacity_divisor;
+        write_buffer[XPO::SOahL as usize] = scaled_capacity as u16;
+        write_buffer[XPO::SOahH as usize] = (scaled_capacity >> 16) as u16;
+        let scaled_energy = self.protection.over_energy_mwh / scaling.energy_divisor;
+        write_buffer[XPO::SOwhL as usize] = scaled_energy as u16;
+        write_buffer[XPO::SOwhH as usize] = (scaled_energy >> 16) as u16;
         write_buffer[XPO::SOtp as usize] =
             self.protection.over_temperature.as_unit(temperature_unit);
         write_buffer[XPO::SIni as usize] = self.output_enable as u16;
@@ -66,7 +82,6 @@ impl XyPreset {
             self.protection.over_temperature.as_unit(temperature_unit);
 
         let start_address = XPO::VSet.address_in_group(self.group);
-        println!("{:#?}", (start_address, write_buffer));
         (start_address, write_buffer)
     }
 }
@@ -392,9 +407,12 @@ mod test {
             .build()
             .unwrap();
 
-        // Generate payload.
+        // Create manual scaling factors (equivalent to the hardcoded /10 scaling).
+        let scaling = ScalingFactors::new(10, 10, 10, 10, 10);
+
+        // Generate payload using manual scaling factors.
         let (start_address, write_buffer) =
-            preset.generate_write_data_and_offset(TemperatureUnit::Celsius);
+            preset.generate_write_data_and_offset(TemperatureUnit::Celsius, scaling);
 
         // Check start address is as expected.
         assert_eq!(start_address, 0x80);

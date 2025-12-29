@@ -28,6 +28,20 @@ pub enum MockSerialError {
     WouldBlock,
 }
 
+impl core::fmt::Display for MockSerialError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            MockSerialError::Timeout => write!(f, "Operation timed out"),
+            MockSerialError::BufferOverflow => write!(f, "Buffer overflow"),
+            MockSerialError::InvalidData => write!(f, "Invalid data"),
+            MockSerialError::SimulatedError => write!(f, "Simulated error for testing"),
+            MockSerialError::WouldBlock => write!(f, "Would block - no data available"),
+        }
+    }
+}
+
+impl core::error::Error for MockSerialError {}
+
 impl embedded_io::Error for MockSerialError {
     fn kind(&self) -> embedded_io::ErrorKind {
         match self {
@@ -187,6 +201,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "no_std"))]
     fn test_write_buffer_overflow() {
         let mut mock = MockSerial::new();
         let large_data = vec![0u8; 300]; // Larger than 256 byte capacity
@@ -374,6 +389,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "no_std"))]
     fn test_set_read_data_buffer_overflow() {
         let mut mock = MockSerial::new();
         let large_data = vec![0u8; 300]; // Larger than 256 byte capacity

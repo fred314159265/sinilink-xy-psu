@@ -6,12 +6,8 @@ use modular_bitfield::prelude::*;
 #[repr(u16)]
 pub enum XyRegister {
     /// __R/W__ - Voltage setting.
-    ///
-    /// Value is u16 in centi-volts. E.g. 5.0V => `500`.
     VSet = 0x00,
     /// __R/W__ - Current setting.
-    ///
-    /// Value is u16 in milli-volts. E.g. 1.5A => `1500`.
     ISet = 0x01,
     /// __R__ - Output voltage display value.
     VOut = 0x02,
@@ -135,8 +131,8 @@ pub enum ProductModel {
     XYSK150S,
     /// This model's "MODEL" register value has not been confirmed.
     XY3606B,
-    /// This model's "MODEL" register value has not been confirmed.
-    XY3607F = 3607,
+    /// Confirmed.
+    XY3607F = 22869,
     /// This model's "MODEL" register value has not been confirmed.
     XY6506,
     /// This model's "MODEL" register value has not been confirmed.
@@ -145,10 +141,12 @@ pub enum ProductModel {
     XY6509,
     /// This model's "MODEL" register value has not been confirmed.
     XY6509X,
-    /// This model's "MODEL" register value has not been confirmed.
-    XY7025 = 7025,
-    /// This model's "MODEL" register value has not been confirmed.
-    XY12522 = 12522,
+    /// Confirmed.
+    XY7025 = 25856,
+    /// Confirmed.
+    XY12522 = 25857,
+    /// Confirmed on a XY-6020L V5.1 board.
+    XY6020L = 25858,
 }
 
 /// Represents the two possible power supply control modes.
@@ -255,7 +253,7 @@ pub enum State {
     On = 0x01,
 }
 
-impl std::ops::Not for State {
+impl core::ops::Not for State {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -372,12 +370,12 @@ impl Temperature {
     /// Create a [`Temperature`] from a temperature value pass in using the units of centi-degree C/F.
     ///
     /// E.g. 294 => 29.4° but get rounded to 29°
-    pub fn from_centi(value: u16, unit: TemperatureUnit) -> Self {
+    pub const fn from_centi(value: u16, unit: TemperatureUnit) -> Self {
         let rounded = Self::div_10_and_round(value);
         Self::new(rounded, unit)
     }
 
-    pub fn new(value: u16, unit: TemperatureUnit) -> Self {
+    pub const fn new(value: u16, unit: TemperatureUnit) -> Self {
         match unit {
             TemperatureUnit::Celsius => Self::Celsius(value),
             TemperatureUnit::Fahrenheit => Self::Fahrenheit(value),
@@ -385,7 +383,7 @@ impl Temperature {
     }
 
     /// Convert this temperature into celsius.
-    pub fn as_celsius(&self) -> u16 {
+    pub const fn as_celsius(&self) -> u16 {
         match *self {
             Self::Celsius(inner) => inner,
             Self::Fahrenheit(inner) => Self::f_to_c(inner),
@@ -393,7 +391,7 @@ impl Temperature {
     }
 
     /// Convert this temperature into fahrenheit.
-    pub fn as_fahrenheit(&self) -> u16 {
+    pub const fn as_fahrenheit(&self) -> u16 {
         match *self {
             Self::Celsius(inner) => Self::c_to_f(inner),
             Self::Fahrenheit(inner) => inner,
@@ -401,7 +399,7 @@ impl Temperature {
     }
 
     /// Convert this temperature into a target temperature unit.
-    pub fn as_unit(&self, unit: TemperatureUnit) -> u16 {
+    pub const fn as_unit(&self, unit: TemperatureUnit) -> u16 {
         match unit {
             TemperatureUnit::Celsius => self.as_celsius(),
             TemperatureUnit::Fahrenheit => self.as_fahrenheit(),
@@ -409,19 +407,19 @@ impl Temperature {
     }
 
     /// Convert fahrenheit to celsius.
-    fn f_to_c(temp_f: u16) -> u16 {
+    const fn f_to_c(temp_f: u16) -> u16 {
         let multiplied = ((temp_f * 10 - 320) * 5) / 9;
         Self::div_10_and_round(multiplied)
     }
 
     /// Convert celsius to fahrenheit.
-    fn c_to_f(temp_c: u16) -> u16 {
+    const fn c_to_f(temp_c: u16) -> u16 {
         // We calculate with one fixed centimal place and manually calculate rounding.
         let multiplied = ((temp_c * 90) / 5) + 320;
         Self::div_10_and_round(multiplied)
     }
 
-    fn div_10_and_round(value: u16) -> u16 {
+    const fn div_10_and_round(value: u16) -> u16 {
         let centimal = value % 10;
         if centimal >= 5 {
             (value / 10) + 1

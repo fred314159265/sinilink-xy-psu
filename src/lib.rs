@@ -33,6 +33,7 @@ pub mod error;
 pub mod preset;
 pub mod psu;
 pub mod register;
+pub mod scaling;
 
 #[cfg(test)]
 mod mock_serial;
@@ -41,16 +42,8 @@ mod mock_serial;
 // * Determine units of all values and protections, based on setting and reading over modbus.
 //      * Update protection defaults to reflect this.
 // * Do we need a lookup table to establish bounds checking on values set?
-// * Add provisions for setting protections values using presets.
-//     * Because importing profile will set all protection, this will need to either:
-//         1. read active profile, modify one protection (and check all iset, vset match existing) and then apply.
-//         2. User has to supply all protection values, and ones not provided are set to maximums, and then preset applied. (After making sure Vset, etc matches)
 //     * Will loading presets enable/disable the output?
 // Unify use of get/read/set/write
-
-// How to exit once protection is activated?
-
-// I suggest use of presets behind some kind of "set protections" method and a struct for configuring all protections.
 // * General support for presets.
 // * Make use of https://github.com/alttch/rmodbus?tab=readme-ov-file#custom-type-representations-in-u16-sized-registers ?
 // * Expose all functions/registers

@@ -21,6 +21,10 @@ pub enum Error<I: embedded_io::Error> {
     BufferError,
     #[error("Passed value was too large to convert to u16.")]
     IntTooBig,
+    #[error(
+        "Scaling factors not available for this PSU model. You can use the *_raw() methods instead an apply scaling manually."
+    )]
+    ScalingNotAvailable,
     #[error("Other, non-descriptive error...")]
     Other,
 }
